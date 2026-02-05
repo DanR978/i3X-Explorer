@@ -67,10 +67,11 @@ nvm use 20  # or: nvm use (if .nvmrc is configured)
 # Generate icons (uses build/icon-1024.png by default)
 ./scripts/generate-icons.sh
 
-# Build for all platforms (recommended for releases)
-npm run build:all
+# Build for all platforms (best way, recommended for releases)
+./scripts/build-all.sh [mac|win|linux|all]
 
 # Platform-specific builds
+npm run build:all          # All
 npm run build:mac          # macOS (Intel + Apple Silicon)
 npm run build:mac:x64      # macOS Intel only
 npm run build:mac:arm64    # macOS Apple Silicon only
