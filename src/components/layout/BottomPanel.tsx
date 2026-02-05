@@ -3,11 +3,11 @@ import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { SubscriptionPanel } from '../subscriptions/SubscriptionPanel'
 
 export function BottomPanel() {
-  const { subscriptions } = useSubscriptionsStore()
+  const { subscriptions, isBottomPanelExpanded, setBottomPanelExpanded } = useSubscriptionsStore()
   const [height, setHeight] = useState(330)
   const [isResizing, setIsResizing] = useState(false)
-  const [isCollapsed, setIsCollapsed] = useState(false)
 
+  const isCollapsed = !isBottomPanelExpanded
   const hasSubscriptions = subscriptions.size > 0
 
   const handleMouseDown = useCallback(() => {
@@ -29,9 +29,15 @@ export function BottomPanel() {
 
   useEffect(() => {
     if (isResizing) {
+      // Prevent text selection while resizing
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'ns-resize'
+
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
       return () => {
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
         window.removeEventListener('mousemove', handleMouseMove)
         window.removeEventListener('mouseup', handleMouseUp)
       }
@@ -39,8 +45,8 @@ export function BottomPanel() {
   }, [isResizing, handleMouseMove, handleMouseUp])
 
   const toggleCollapsed = useCallback(() => {
-    setIsCollapsed(prev => !prev)
-  }, [])
+    setBottomPanelExpanded(!isBottomPanelExpanded)
+  }, [isBottomPanelExpanded, setBottomPanelExpanded])
 
   return (
     <div

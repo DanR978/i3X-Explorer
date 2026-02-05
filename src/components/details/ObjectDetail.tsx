@@ -16,7 +16,7 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
   const [valueError, setValueError] = useState<string | null>(null)
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false)
 
-  const { activeSubscriptionId, addMonitoredItem } = useSubscriptionsStore()
+  const { activeSubscriptionId, addMonitoredItem, setBottomPanelExpanded } = useSubscriptionsStore()
 
   useEffect(() => {
     loadValue()
@@ -62,6 +62,9 @@ export function ObjectDetail({ object }: ObjectDetailProps) {
       // Register this object
       await client.registerMonitoredItems(subscriptionId, [object.elementId])
       addMonitoredItem(subscriptionId, object.elementId)
+
+      // Expand the subscriptions panel
+      setBottomPanelExpanded(true)
     } catch (err) {
       console.error('Failed to subscribe:', err)
     }

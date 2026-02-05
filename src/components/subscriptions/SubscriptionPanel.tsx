@@ -85,7 +85,8 @@ export function SubscriptionPanel() {
         (error) => {
           console.error('SSE error:', error)
           setStreaming(subscriptionId, false)
-        }
+        },
+        client.getCredentials()
       )
       sseRef.current.connect()
     }

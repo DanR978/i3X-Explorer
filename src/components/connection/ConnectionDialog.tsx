@@ -6,13 +6,25 @@ export function ConnectionDialog() {
     serverUrl,
     recentUrls,
     setServerUrl,
+    setCredentials,
+    saveCredentialsForUrl,
+    getCredentialsForUrl,
     setShowConnectionDialog
   } = useConnectionStore()
 
+  // Initialize with saved credentials for current server
+  const savedCreds = getCredentialsForUrl(serverUrl)
   const [inputUrl, setInputUrl] = useState(serverUrl)
+  const [useAuth, setUseAuth] = useState(!!savedCreds)
+  const [username, setUsername] = useState(savedCreds?.username ?? '')
+  const [password, setPassword] = useState(savedCreds?.password ?? '')
 
   const handleSave = () => {
     setServerUrl(inputUrl)
+    const newCredentials = useAuth && username ? { username, password } : null
+    setCredentials(newCredentials)
+    // Save credentials for this URL
+    saveCredentialsForUrl(inputUrl, newCredentials)
     setShowConnectionDialog(false)
   }
 
@@ -22,6 +34,17 @@ export function ConnectionDialog() {
 
   const handleSelectRecent = (url: string) => {
     setInputUrl(url)
+    // Load saved credentials for selected URL
+    const creds = getCredentialsForUrl(url)
+    if (creds) {
+      setUseAuth(true)
+      setUsername(creds.username)
+      setPassword(creds.password)
+    } else {
+      setUseAuth(false)
+      setUsername('')
+      setPassword('')
+    }
   }
 
   return (
@@ -48,23 +71,74 @@ export function ConnectionDialog() {
             />
           </div>
 
+          {/* Authentication toggle */}
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useAuth}
+                onChange={(e) => setUseAuth(e.target.checked)}
+                className="w-4 h-4 rounded border-i3x-border bg-i3x-bg text-i3x-primary focus:ring-i3x-primary focus:ring-offset-0"
+              />
+              <span className="text-xs text-i3x-text-muted">Use authentication</span>
+            </label>
+          </div>
+
+          {/* Credentials fields */}
+          {useAuth && (
+            <div className="space-y-3 pl-6">
+              <div>
+                <label className="block text-xs text-i3x-text-muted mb-1">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-i3x-text-muted mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="password"
+                  className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+
           {recentUrls.length > 0 && (
             <div>
               <label className="block text-xs text-i3x-text-muted mb-2">
                 Recent Connections
               </label>
               <div className="space-y-1 max-h-32 overflow-auto">
-                {recentUrls.map((url) => (
-                  <button
-                    key={url}
-                    onClick={() => handleSelectRecent(url)}
-                    className={`w-full text-left px-3 py-1.5 text-sm rounded hover:bg-i3x-bg transition-colors ${
-                      url === inputUrl ? 'bg-i3x-primary/20 text-i3x-primary' : 'text-i3x-text'
-                    }`}
-                  >
-                    {url}
-                  </button>
-                ))}
+                {recentUrls.map((url) => {
+                  const hasSavedCreds = !!getCredentialsForUrl(url)
+                  return (
+                    <button
+                      key={url}
+                      onClick={() => handleSelectRecent(url)}
+                      className={`w-full text-left px-3 py-1.5 text-sm rounded hover:bg-i3x-bg transition-colors flex items-center justify-between ${
+                        url === inputUrl ? 'bg-i3x-primary/20 text-i3x-primary' : 'text-i3x-text'
+                      }`}
+                    >
+                      <span className="truncate">{url}</span>
+                      {hasSavedCreds && (
+                        <span className="text-xs text-i3x-text-muted ml-2 shrink-0" title="Has saved credentials">
+                          [auth]
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}

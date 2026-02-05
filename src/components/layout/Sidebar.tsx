@@ -1,27 +1,52 @@
+import { useState, useCallback, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { TreeView } from '../tree/TreeView'
 
 export function Sidebar() {
   const { isConnected } = useConnectionStore()
-  const { isLoading, searchQuery, setSearchQuery } = useExplorerStore()
+  const { isLoading } = useExplorerStore()
+  const [width, setWidth] = useState(288) // 72 * 4 = 288px (w-72)
+  const [isResizing, setIsResizing] = useState(false)
+
+  const handleMouseDown = useCallback(() => {
+    setIsResizing(true)
+  }, [])
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return
+    // Clamp between min (224px) and max (480px)
+    setWidth(Math.max(224, Math.min(480, e.clientX)))
+  }, [isResizing])
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false)
+  }, [])
+
+  useEffect(() => {
+    if (isResizing) {
+      // Prevent text selection while resizing
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'ew-resize'
+
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      return () => {
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp])
 
   return (
-    <div className="w-72 min-w-56 max-w-96 bg-i3x-surface border-r border-i3x-border flex flex-col">
-      {/* Search */}
-      <div className="p-2 border-b border-i3x-border">
-        <input
-          type="text"
-          placeholder="Search..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-1.5 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
-          disabled={!isConnected}
-        />
-      </div>
-
+    <div
+      className="bg-i3x-surface border-r border-i3x-border flex"
+      style={{ width: `${width}px`, minWidth: '224px', maxWidth: '480px' }}
+    >
       {/* Tree content */}
-      <div className="flex-1 overflow-auto p-2">
+      <div className="flex-1 overflow-auto p-2 flex flex-col">
         {!isConnected ? (
           <div className="flex items-center justify-center h-full text-i3x-text-muted text-sm">
             Connect to a server to browse
@@ -34,6 +59,14 @@ export function Sidebar() {
           <TreeView />
         )}
       </div>
+
+      {/* Resize handle */}
+      <div
+        className={`w-1 cursor-ew-resize hover:bg-i3x-primary/50 transition-colors ${
+          isResizing ? 'bg-i3x-primary' : ''
+        }`}
+        onMouseDown={handleMouseDown}
+      />
     </div>
   )
 }

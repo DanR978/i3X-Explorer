@@ -6,6 +6,9 @@ import { createClient, destroyClient, getClient } from '../../api/client'
 export function Toolbar() {
   const {
     serverUrl,
+    credentials,
+    getCredentialsForUrl,
+    setCredentials,
     isConnected,
     isConnecting,
     error,
@@ -24,8 +27,14 @@ export function Toolbar() {
     setConnecting(true)
     setError(null)
 
+    // Use saved credentials if none are currently set
+    const activeCredentials = credentials ?? getCredentialsForUrl(serverUrl)
+    if (activeCredentials && !credentials) {
+      setCredentials(activeCredentials)
+    }
+
     try {
-      const client = createClient(serverUrl)
+      const client = createClient(serverUrl, activeCredentials)
       const success = await client.testConnection()
 
       if (success) {
@@ -69,12 +78,13 @@ export function Toolbar() {
       {/* macOS traffic light spacing */}
       <div className="w-16" />
 
+      <img src="/icon.png" alt="" className="w-5 h-5" />
       <h1 className="text-sm font-semibold text-i3x-text">i3X Explorer</h1>
 
       <div className="flex-1 flex items-center gap-2">
         <button
           onClick={() => setShowConnectionDialog(true)}
-          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors truncate max-w-md"
+          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors truncate max-w-2xl"
         >
           {serverUrl || 'Click to configure'}
         </button>
@@ -95,6 +105,12 @@ export function Toolbar() {
             Disconnect
           </button>
         )}
+        <button
+          onClick={() => window.electronAPI?.openDevTools()}
+          className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors"
+        >
+          Developer
+        </button>
       </div>
 
       {/* Connection status */}
@@ -111,6 +127,9 @@ export function Toolbar() {
         <span className="text-xs text-i3x-text-muted">
           {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
         </span>
+        {isConnected && credentials && (
+          <span title="Authenticated connection">🔒</span>
+        )}
       </div>
 
       {error && (

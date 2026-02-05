@@ -47,7 +47,7 @@ export const useSubscriptionsStore = create<SubscriptionsState>((set, get) => ({
   liveValues: new Map(),
   trendData: new Map(),
   activeSubscriptionId: null,
-  isBottomPanelExpanded: true,
+  isBottomPanelExpanded: false,
 
   addSubscription: (sub) => {
     const { subscriptions } = get()

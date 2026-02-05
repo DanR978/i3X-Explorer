@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.cesmii.i3x-explorer",
   "productName": "i3X Explorer",
-  "copyright": "Copyright © 2024 CESMII",
+  "copyright": "Copyright © 2026 Ace Technologies Inc",
   "asar": true,
   "directories": {
     "output": "release/${version}",

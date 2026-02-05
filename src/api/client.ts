@@ -10,11 +10,64 @@ import type {
   GetSubscriptionsResponse
 } from './types'
 
+export interface ClientCredentials {
+  username: string
+  password: string
+}
+
+// Check if we're running in Electron with IPC available
+function isElectron(): boolean {
+  return typeof window !== 'undefined' &&
+         !!window.electronAPI &&
+         typeof window.electronAPI.httpRequest === 'function'
+}
+
+// #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
+// Extracts value/quality/timestamp from either standard format or nested Data.Value format
+// Standard: { value: X, quality: Y, timestamp: Z }
+// Nested value: { value: { Data: { Value: X, Quality: Y, Timestamp: Z }, Source: {...} } }
+function extractVQT(payload: Record<string, unknown>): { value: unknown; quality?: string; timestamp?: string } {
+  // Check if the value field contains the nested Data structure
+  if (payload.value && typeof payload.value === 'object' && payload.value !== null) {
+    const valueObj = payload.value as Record<string, unknown>
+    if (valueObj.Data && typeof valueObj.Data === 'object') {
+      const data = valueObj.Data as Record<string, unknown>
+      return {
+        value: data.Value,
+        quality: data.Quality as string | undefined,
+        timestamp: data.Timestamp as string | undefined
+      }
+    }
+  }
+  // Standard format
+  return {
+    value: payload.value,
+    quality: payload.quality as string | undefined,
+    timestamp: payload.timestamp as string | undefined
+  }
+}
+
 export class I3XClient {
   private baseUrl: string
+  private credentials: ClientCredentials | null
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, credentials?: ClientCredentials | null) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.credentials = credentials ?? null
+  }
+
+  private getAuthHeader(): string | null {
+    if (!this.credentials) return null
+    const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
+    return `Basic ${encoded}`
+  }
+
+  getCredentials(): ClientCredentials | null {
+    return this.credentials
+  }
+
+  getBaseUrl(): string {
+    return this.baseUrl
   }
 
   private async request<T>(
@@ -23,12 +76,38 @@ export class I3XClient {
     body?: unknown
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
+
+    const authHeader = this.getAuthHeader()
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Use Electron IPC if available (bypasses CORS)
+    if (isElectron()) {
+      console.log('[Client] IPC request:', method, url)
+      const response = await window.electronAPI!.httpRequest({
+        url,
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined
+      })
+      console.log('[Client] IPC response:', response.status, response.ok)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.text}`)
+      }
+
+      return JSON.parse(response.text)
+    }
+
+    // Fallback to fetch for non-Electron environments
     const options: RequestInit = {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
+      headers
     }
 
     if (body) {
@@ -95,26 +174,28 @@ export class I3XClient {
 
   async getValue(elementId: string, maxDepth = 1): Promise<LastKnownValue | null> {
     // Response format: {elementId: {data: [{value, quality, timestamp}]}}
-    const response = await this.request<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>(
+    const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
       'POST', '/objects/value', { elementIds: [elementId], maxDepth }
     )
     const entry = response[elementId]
     if (entry?.data?.[0]) {
-      return { elementId, ...entry.data[0] } as LastKnownValue
+      const vqt = extractVQT(entry.data[0])
+      return { elementId, ...vqt } as LastKnownValue
     }
     return null
   }
 
   async getValues(elementIds: string[], maxDepth = 1): Promise<LastKnownValue[]> {
     // Response format: {elementId: {data: [{value, quality, timestamp}]}, ...}
-    const response = await this.request<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>(
+    const response = await this.request<Record<string, { data: Array<Record<string, unknown>> }>>(
       'POST', '/objects/value', { elementIds, maxDepth }
     )
     const values: LastKnownValue[] = []
     for (const id of elementIds) {
       const entry = response[id]
       if (entry?.data?.[0]) {
-        values.push({ elementId: id, ...entry.data[0] } as LastKnownValue)
+        const vqt = extractVQT(entry.data[0])
+        values.push({ elementId: id, ...vqt } as LastKnownValue)
       }
     }
     return values
@@ -184,7 +265,7 @@ export class I3XClient {
 
   async sync(subscriptionId: string): Promise<SyncResponseItem[]> {
     // Response format: [{elementId: {data: [{value, quality, timestamp}]}}, ...]
-    const response = await this.request<Array<Record<string, { data: Array<{ value: unknown; quality?: string; timestamp?: string }> }>>>(
+    const response = await this.request<Array<Record<string, { data: Array<Record<string, unknown>> }>>>(
       'POST',
       `/subscriptions/${subscriptionId}/sync`
     )
@@ -192,11 +273,12 @@ export class I3XClient {
     for (const entry of response) {
       for (const [elementId, payload] of Object.entries(entry)) {
         if (payload?.data?.[0]) {
+          const vqt = extractVQT(payload.data[0])
           items.push({
             elementId,
-            value: payload.data[0].value,
-            quality: payload.data[0].quality ?? null,
-            timestamp: payload.data[0].timestamp ?? null
+            value: vqt.value,
+            quality: vqt.quality ?? null,
+            timestamp: vqt.timestamp ?? null
           })
         }
       }
@@ -226,8 +308,8 @@ export function getClient(): I3XClient | null {
   return clientInstance
 }
 
-export function createClient(baseUrl: string): I3XClient {
-  clientInstance = new I3XClient(baseUrl)
+export function createClient(baseUrl: string, credentials?: ClientCredentials | null): I3XClient {
+  clientInstance = new I3XClient(baseUrl, credentials)
   return clientInstance
 }
 

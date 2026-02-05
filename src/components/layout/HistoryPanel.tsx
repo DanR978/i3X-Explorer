@@ -57,14 +57,19 @@ export function HistoryPanel() {
           endTime
         )
 
-        // Extract data points from response
+        // Extract data points from response - only include points with actual values
         const points: HistoryDataPoint[] = []
         if (Array.isArray(result.value)) {
           for (const item of result.value) {
             if (item && typeof item === 'object' && 'timestamp' in item) {
+              // Skip points with null/undefined values - they're not meaningful history
+              const itemValue = (item as Record<string, unknown>).value
+              if (itemValue === null || itemValue === undefined) {
+                continue
+              }
               points.push({
                 timestamp: item.timestamp as string,
-                value: item.value,
+                value: itemValue,
                 quality: item.quality as string | undefined
               })
             }

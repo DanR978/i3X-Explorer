@@ -131,6 +131,15 @@ function TreeNode({ id, label, type, data, depth, hasChildren, children }: TreeN
 // Max depth for tree rendering to prevent infinite loops
 const MAX_TREE_DEPTH = 20
 
+// Get display label for an object, handling special cases like root "/"
+function getObjectLabel(obj: ObjectInstance): string {
+  if (obj.displayName && obj.displayName.trim()) {
+    return obj.displayName
+  }
+  // Fallback to elementId for objects with empty displayName (e.g., root "/")
+  return obj.elementId
+}
+
 // Recursive component for rendering objects with their children
 function ObjectNode({
   obj,
@@ -170,7 +179,7 @@ function ObjectNode({
   return (
     <TreeNode
       id={`obj:${obj.elementId}`}
-      label={obj.displayName}
+      label={getObjectLabel(obj)}
       type="object"
       data={obj}
       depth={depth}
@@ -231,7 +240,7 @@ function HierarchicalObjectNode({
   return (
     <TreeNode
       id={`hier:${obj.elementId}`}
-      label={obj.displayName}
+      label={getObjectLabel(obj)}
       type="object"
       data={obj}
       depth={depth}
