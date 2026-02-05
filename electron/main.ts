@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, safeStorage } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -8,6 +8,17 @@ const __dirname = path.dirname(__filename)
 
 // Set the app name for macOS menu bar (overrides package.json "name")
 app.setName('i3X Explorer')
+
+// IPC handlers for credential encryption via OS keychain
+ipcMain.handle('safe-storage-encrypt', (_event, plaintext: string) => {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  return safeStorage.encryptString(plaintext).toString('base64')
+})
+
+ipcMain.handle('safe-storage-decrypt', (_event, encrypted: string) => {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+})
 
 // IPC handler for HTTP requests (bypasses CORS)
 ipcMain.handle('http-request', async (_event, options: {

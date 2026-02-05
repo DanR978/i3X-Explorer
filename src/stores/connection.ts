@@ -1,10 +1,62 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 
-interface Credentials {
+// Custom storage that encrypts savedCredentials via Electron's safeStorage
+const encryptedStorage: StateStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    const raw = localStorage.getItem(name)
+    if (!raw) return null
+
+    try {
+      const parsed = JSON.parse(raw)
+      const state = parsed?.state
+      if (state?.savedCredentials && typeof state.savedCredentials === 'string' && window.electronAPI) {
+        const decrypted = await window.electronAPI.decryptString(state.savedCredentials)
+        if (decrypted) {
+          state.savedCredentials = JSON.parse(decrypted)
+        } else {
+          state.savedCredentials = {}
+        }
+      }
+      return JSON.stringify(parsed)
+    } catch {
+      return raw
+    }
+  },
+
+  setItem: async (name: string, value: string): Promise<void> => {
+    try {
+      const parsed = JSON.parse(value)
+      const state = parsed?.state
+      if (state?.savedCredentials && typeof state.savedCredentials === 'object' && window.electronAPI) {
+        const encrypted = await window.electronAPI.encryptString(JSON.stringify(state.savedCredentials))
+        if (encrypted) {
+          state.savedCredentials = encrypted
+        }
+      }
+      localStorage.setItem(name, JSON.stringify(parsed))
+    } catch {
+      localStorage.setItem(name, value)
+    }
+  },
+
+  removeItem: (name: string): void => {
+    localStorage.removeItem(name)
+  }
+}
+
+interface BasicCredentials {
+  type: 'basic'
   username: string
   password: string
 }
+
+interface BearerCredentials {
+  type: 'bearer'
+  token: string
+}
+
+export type Credentials = BasicCredentials | BearerCredentials
 
 interface ConnectionState {
   serverUrl: string
@@ -79,6 +131,7 @@ export const useConnectionStore = create<ConnectionState>()(
     }),
     {
       name: 'i3x-connection',
+      storage: createJSONStorage(() => encryptedStorage),
       partialize: (state) => ({
         serverUrl: state.serverUrl,
         recentUrls: state.recentUrls,

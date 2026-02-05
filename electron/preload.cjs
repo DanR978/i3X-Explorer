@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   },
+  // Credential encryption via OS keychain
+  encryptString: (plaintext) => ipcRenderer.invoke('safe-storage-encrypt', plaintext),
+  decryptString: (encrypted) => ipcRenderer.invoke('safe-storage-decrypt', encrypted),
   // Open DevTools in detached window
   openDevTools: () => {
     return ipcRenderer.invoke('open-devtools')
