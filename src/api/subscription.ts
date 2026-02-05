@@ -78,8 +78,12 @@ export class SSESubscription {
     }
 
     if (this.credentials) {
-      const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
-      headers['Authorization'] = `Basic ${encoded}`
+      if (this.credentials.type === 'bearer') {
+        headers['Authorization'] = `Bearer ${this.credentials.token}`
+      } else {
+        const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
+        headers['Authorization'] = `Basic ${encoded}`
+      }
     }
 
     try {
@@ -129,8 +133,12 @@ export class SSESubscription {
     }
 
     if (this.credentials) {
-      const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
-      headers['Authorization'] = `Basic ${encoded}`
+      if (this.credentials.type === 'bearer') {
+        headers['Authorization'] = `Bearer ${this.credentials.token}`
+      } else {
+        const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
+        headers['Authorization'] = `Basic ${encoded}`
+      }
     }
 
     try {

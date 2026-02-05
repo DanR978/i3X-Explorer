@@ -10,10 +10,9 @@ import type {
   GetSubscriptionsResponse
 } from './types'
 
-export interface ClientCredentials {
-  username: string
-  password: string
-}
+import type { Credentials } from '../stores/connection'
+
+export type ClientCredentials = Credentials
 
 // Check if we're running in Electron with IPC available
 function isElectron(): boolean {
@@ -58,6 +57,9 @@ export class I3XClient {
 
   private getAuthHeader(): string | null {
     if (!this.credentials) return null
+    if (this.credentials.type === 'bearer') {
+      return `Bearer ${this.credentials.token}`
+    }
     const encoded = btoa(`${this.credentials.username}:${this.credentials.password}`)
     return `Basic ${encoded}`
   }

@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { useConnectionStore } from '../../stores/connection'
+import type { Credentials } from '../../stores/connection'
+
+type AuthMethod = 'none' | 'basic' | 'bearer'
 
 export function ConnectionDialog() {
   const {
@@ -14,16 +17,27 @@ export function ConnectionDialog() {
 
   // Initialize with saved credentials for current server
   const savedCreds = getCredentialsForUrl(serverUrl)
+
+  function getInitialAuthMethod(): AuthMethod {
+    if (!savedCreds) return 'none'
+    return savedCreds.type === 'bearer' ? 'bearer' : 'basic'
+  }
+
   const [inputUrl, setInputUrl] = useState(serverUrl)
-  const [useAuth, setUseAuth] = useState(!!savedCreds)
-  const [username, setUsername] = useState(savedCreds?.username ?? '')
-  const [password, setPassword] = useState(savedCreds?.password ?? '')
+  const [authMethod, setAuthMethod] = useState<AuthMethod>(getInitialAuthMethod())
+  const [username, setUsername] = useState(savedCreds?.type === 'basic' ? savedCreds.username : '')
+  const [password, setPassword] = useState(savedCreds?.type === 'basic' ? savedCreds.password : '')
+  const [token, setToken] = useState(savedCreds?.type === 'bearer' ? savedCreds.token : '')
 
   const handleSave = () => {
     setServerUrl(inputUrl)
-    const newCredentials = useAuth && username ? { username, password } : null
+    let newCredentials: Credentials | null = null
+    if (authMethod === 'basic' && username) {
+      newCredentials = { type: 'basic', username, password }
+    } else if (authMethod === 'bearer' && token) {
+      newCredentials = { type: 'bearer', token }
+    }
     setCredentials(newCredentials)
-    // Save credentials for this URL
     saveCredentialsForUrl(inputUrl, newCredentials)
     setShowConnectionDialog(false)
   }
@@ -34,16 +48,24 @@ export function ConnectionDialog() {
 
   const handleSelectRecent = (url: string) => {
     setInputUrl(url)
-    // Load saved credentials for selected URL
     const creds = getCredentialsForUrl(url)
     if (creds) {
-      setUseAuth(true)
-      setUsername(creds.username)
-      setPassword(creds.password)
+      if (creds.type === 'bearer') {
+        setAuthMethod('bearer')
+        setToken(creds.token)
+        setUsername('')
+        setPassword('')
+      } else {
+        setAuthMethod('basic')
+        setUsername(creds.username)
+        setPassword(creds.password)
+        setToken('')
+      }
     } else {
-      setUseAuth(false)
+      setAuthMethod('none')
       setUsername('')
       setPassword('')
+      setToken('')
     }
   }
 
@@ -71,21 +93,24 @@ export function ConnectionDialog() {
             />
           </div>
 
-          {/* Authentication toggle */}
+          {/* Authentication method */}
           <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useAuth}
-                onChange={(e) => setUseAuth(e.target.checked)}
-                className="w-4 h-4 rounded border-i3x-border bg-i3x-bg text-i3x-primary focus:ring-i3x-primary focus:ring-offset-0"
-              />
-              <span className="text-xs text-i3x-text-muted">Use authentication</span>
+            <label className="block text-xs text-i3x-text-muted mb-1">
+              Authentication
             </label>
+            <select
+              value={authMethod}
+              onChange={(e) => setAuthMethod(e.target.value as AuthMethod)}
+              className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+            >
+              <option value="none">None</option>
+              <option value="basic">Basic Auth</option>
+              <option value="bearer">Bearer Token</option>
+            </select>
           </div>
 
-          {/* Credentials fields */}
-          {useAuth && (
+          {/* Basic auth fields */}
+          {authMethod === 'basic' && (
             <div className="space-y-3 pl-6">
               <div>
                 <label className="block text-xs text-i3x-text-muted mb-1">
@@ -111,6 +136,22 @@ export function ConnectionDialog() {
                   className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Bearer token field */}
+          {authMethod === 'bearer' && (
+            <div className="pl-6">
+              <label className="block text-xs text-i3x-text-muted mb-1">
+                Token
+              </label>
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="paste your bearer token"
+                className="w-full px-3 py-2 text-sm bg-i3x-bg rounded border border-i3x-border focus:border-i3x-primary focus:outline-none"
+              />
             </div>
           )}
 

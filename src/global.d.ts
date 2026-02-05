@@ -31,6 +31,8 @@ interface Window {
     onSSEData: (streamId: string, callback: (data: string) => void) => () => void
     onSSEError: (streamId: string, callback: (error: string) => void) => () => void
     onSSEEnd: (streamId: string, callback: () => void) => () => void
+    encryptString: (plaintext: string) => Promise<string | null>
+    decryptString: (encrypted: string) => Promise<string | null>
     openDevTools: () => Promise<void>
   }
 }
