@@ -211,6 +211,10 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'    # suppress electron-builder cert s
 npx electron-builder --win --publish never
 if ($LASTEXITCODE -ne 0) { Abort "electron-builder failed." }
 
+# electron-builder's portable target spawns a child process (7-zip sfx) that may still be
+# writing the file when the main process exits. Give it a moment to finish.
+Start-Sleep -Seconds 3
+
 # ── Sign ──────────────────────────────────────────────────────────────────────
 
 Write-Header "Signing Windows artifacts"
