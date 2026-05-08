@@ -19,15 +19,15 @@ async function resolveCompositionFlags(client: I3XClient, loaded: ObjectInstance
     }
   }
   if (toResolve.length === 0) return
-  const additions = new Map<string, boolean>()
+  const additions = new Map<string, number>()
   try {
     const related = await client.getRelatedObjectsBatch(toResolve, 'HasComponent')
     for (const parentId of toResolve) {
       const children = related.get(parentId) ?? []
-      const hasQualifying = children.some(c =>
+      const qualifyingCount = children.filter(c =>
         c.isComposition && c.elementId !== parentId && c.parentId === parentId
-      )
-      additions.set(parentId, hasQualifying)
+      ).length
+      additions.set(parentId, qualifyingCount)
     }
   } catch (err) {
     console.error('Failed to resolve composition flags via /objects/related:', err)
@@ -41,13 +41,35 @@ const BACKGROUND_POLL_ENABLED = true
 const FolderIcon = () => (
   <span style={{ filter: 'sepia(1) saturate(1.6) hue-rotate(-15deg) brightness(0.89)' }}>🗄️</span>
 )
+// 📁 emoji renders grey on some macOS configurations; sepia/saturate filter
+// forces a manilla tint while keeping the emoji aesthetic of the rest of the
+// tree.
+const FolderTypeIcon = () => (
+  <span style={{ filter: 'sepia(1) saturate(2) hue-rotate(-5deg) brightness(1.05)' }}>📁</span>
+)
+
+// Three lowest-common-denominator buckets for object instances that aren't
+// FolderType. Driven by OPC UA's nodeClass when available (carried through on
+// metadata.system.nodeClass), with a typeId/sourceTypeId keyword fallback.
+const ObjectClassIcon = () => <span>📦</span>
+const VariableClassIcon = () => <span>📊</span>
+const OtherClassIcon = () => <span>⚙️</span>
+
+function bucketInstance(obj: ObjectInstance | undefined): 'object' | 'variable' | 'other' {
+  if (!obj) return 'other'
+  const sys = (obj.metadata?.system ?? {}) as Record<string, unknown>
+  const nodeClass = String(sys.nodeClass ?? '').toLowerCase()
+  if (nodeClass.startsWith('object')) return 'object'
+  if (nodeClass.startsWith('variable')) return 'variable'
+  if (nodeClass) return 'other'
+  // Fallback when nodeClass isn't reported: heuristic on typeId / sourceTypeId.
+  const t = `${obj.typeId} ${String(obj.metadata?.sourceTypeId ?? '')}`.toLowerCase()
+  if (/(variable|tag|datapoint|dataitem|measurement|sensor)/.test(t)) return 'variable'
+  if (/(object|device|equipment|asset|machine|component)/.test(t)) return 'object'
+  return 'other'
+}
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
 const TypeIcon = () => <span className="text-i3x-success">📃</span>
-const CompositionObjectIcon = () => <span className="text-i3x-secondary">📦</span>
-const EmptyCompositionObjectIcon = () => (
-  <span style={{ filter: 'grayscale(1)', opacity: 0.6 }}>📦</span>
-)
-const LeafObjectIcon = () => <span className="text-i3x-secondary">🗒️</span>
 const ChevronRight = () => <span className="text-i3x-text-muted">›</span>
 const ChevronDown = () => <span className="text-i3x-text-muted">⌄</span>
 
@@ -171,14 +193,29 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
     switch (type) {
       case 'namespace':
         return <NamespaceIcon />
-      case 'objectType':
+      case 'objectType': {
+        // ObjectType definitions whose source resolves to OPC UA FolderType
+        // render as a folder.
+        const t = data as ObjectType | undefined
+        const src = (t?.sourceTypeId ?? '').toLowerCase()
+        const id = (t?.elementId ?? '').toLowerCase()
+        if (src.includes('foldertype') || id.includes('foldertype')) return <FolderTypeIcon />
         return <TypeIcon />
+      }
       case 'object': {
         const obj = data as ObjectInstance | undefined
-        if (obj?.isComposition) {
-          return hasChildren ? <CompositionObjectIcon /> : <EmptyCompositionObjectIcon />
+        // FolderType instances always render as a folder.
+        const typeId = (obj?.typeId ?? '').toLowerCase()
+        const metaSrc = String(obj?.metadata?.sourceTypeId ?? '').toLowerCase()
+        if (typeId.includes('foldertype') || metaSrc.includes('foldertype')) {
+          return <FolderTypeIcon />
         }
-        return <LeafObjectIcon />
+        // Otherwise bucket into one of three lowest-common-denominator classes.
+        switch (bucketInstance(obj)) {
+          case 'object': return <ObjectClassIcon />
+          case 'variable': return <VariableClassIcon />
+          default: return <OtherClassIcon />
+        }
       }
       case 'folder':
         return <FolderIcon />
@@ -192,10 +229,6 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
       >
-        {/* Non-root nodes: count rendered to the left of the chevron */}
-        {type !== 'folder' && count !== undefined && (
-          <span className="text-sm text-i3x-text-muted/60 tabular-nums flex-shrink-0">{count}</span>
-        )}
         {hasChildren && (
           <span className="w-4 flex-shrink-0">
             {isExpanded ? <ChevronDown /> : <ChevronRight />}
@@ -203,13 +236,24 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
         )}
         {!hasChildren && <span className="w-4" />}
         <span className="flex-shrink-0">{getIcon()}</span>
-        <span className="truncate text-sm">
-          {label}
-          {/* Root folders: count rendered after the label */}
-          {type === 'folder' && count !== undefined && (
-            <span className="ml-1.5 text-i3x-text-muted/60 tabular-nums">{count}</span>
-          )}
-        </span>
+        <span className="truncate text-sm">{label}</span>
+        {/* All counts render on the right edge of the row. Leader line is
+            solid when the row is expanded (the count is "active"), dashed
+            otherwise. */}
+        {count !== undefined && (
+          <>
+            <div
+              className={`flex-1 self-center mx-2 h-0 border-t ${
+                isExpanded
+                  ? 'border-solid border-i3x-text-muted/40'
+                  : 'border-dashed border-i3x-text-muted/25'
+              }`}
+            />
+            <span className="pr-2 text-sm text-i3x-text-muted/60 tabular-nums flex-shrink-0">
+              {count}
+            </span>
+          </>
+        )}
       </div>
       {isExpanded && children}
     </div>
@@ -219,13 +263,14 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
 // Max depth for tree rendering to prevent infinite loops
 const MAX_TREE_DEPTH = 20
 
-// Chevron predicate: consult the compositionCache, which holds the answer
-// resolved via batched /objects/related. If we haven't resolved this object
-// yet, fall back to its isComposition flag (chevron may show momentarily).
-function hasCompositionChildren(obj: ObjectInstance, cache: Map<string, boolean>): boolean {
+// Chevron predicate: consult the compositionCache, which holds the actual
+// child count resolved via batched /objects/related. If we haven't resolved
+// this object yet, fall back to its isComposition flag (chevron may show
+// momentarily until the resolver lands).
+function hasCompositionChildren(obj: ObjectInstance, cache: Map<string, number>): boolean {
   if (!obj.isComposition) return false
   const cached = cache.get(obj.elementId)
-  return cached ?? true
+  return cached === undefined ? true : cached > 0
 }
 
 // Get display label for an object, handling special cases like root "/"
@@ -274,10 +319,15 @@ function ObjectNode({
   const childAncestors = new Set(ancestors)
   childAncestors.add(obj.elementId)
 
+  // Count: prefer the loaded children array (post-expansion); fall back to the
+  // resolver-populated cache for unexpanded compositional objects.
+  const cachedCount = compositionCache.get(obj.elementId)
+  const childCount = children.length > 0 ? children.length : cachedCount
   return (
     <TreeNode
       id={`obj:${obj.elementId}`}
       label={getObjectLabel(obj)}
+      count={childCount && childCount > 0 ? childCount : undefined}
       type="object"
       data={obj}
       depth={depth}

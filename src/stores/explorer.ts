@@ -26,11 +26,11 @@ interface ExplorerState {
   allObjects: ObjectInstance[] // flat list of all objects
   hierarchicalRoots: ObjectInstance[] // root objects for the Hierarchy folder (from root=true query)
   childObjects: Map<string, ObjectInstance[]> // keyed by parent elementId
-  // elementId → "does this object have any qualifying compositional children
-  // (i.e. children where isComposition && parentId === this elementId)?".
-  // Resolved authoritatively via batched POST /objects/related so it never
-  // disagrees with the render filter applied at expansion time.
-  compositionCache: Map<string, boolean>
+  // elementId → count of qualifying compositional children (children where
+  // isComposition && parentId === this elementId). Resolved authoritatively
+  // via batched POST /objects/related so it never disagrees with the render
+  // filter applied at expansion time. Also drives chevron state (count > 0).
+  compositionCache: Map<string, number>
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
   isLoading: boolean
@@ -44,7 +44,7 @@ interface ExplorerState {
   setAllObjects: (objects: ObjectInstance[]) => void
   setHierarchicalRoots: (roots: ObjectInstance[]) => void
   setChildObjects: (parentId: string, children: ObjectInstance[]) => void
-  mergeCompositionFlags: (entries: Iterable<[string, boolean]>) => void
+  mergeCompositionFlags: (entries: Iterable<[string, number]>) => void
   toggleNode: (nodeId: string) => void
   expandNode: (nodeId: string) => void
   collapseNode: (nodeId: string) => void
