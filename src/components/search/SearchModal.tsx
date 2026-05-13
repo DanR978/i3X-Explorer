@@ -219,7 +219,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
                   }`}
                 >
                   <span className="text-base flex-shrink-0 mt-0.5">
-                    {result.object.isComposition ? '📦' : '🗒️'}
+                    {result.object.isComposition ? '📦' : '📊'}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
