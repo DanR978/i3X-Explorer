@@ -41,44 +41,48 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
   const [relatedObjects, setRelatedObjects] = useState<RelatedObject[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { allObjects, selectItem, expandNode, setAllObjects, setHierarchicalRoots } = useExplorerStore()
+  const { allObjects, selectItem, setAllObjects, setHierarchicalRoots } = useExplorerStore()
 
   const handleNodeClick = async (related: RelatedObject) => {
     const client = getClient()
     if (!client) return
 
-    // Fetch full object if not already in the store
+    // Resolve the full object (use cache if available)
     const cached = allObjects.find(o => o.elementId === related.elementId)
     const obj: ObjectInstance = cached ?? await client.getObject(related.elementId)
 
-    // Select the item — use the hier: prefix so the hierarchy tree node highlights
-    selectItem({ type: 'object', id: `hier:${obj.elementId}`, data: obj })
-
-    // Ensure allObjects and hierarchicalRoots are loaded before expanding the tree
-    let knownObjects = allObjects
+    // Guard: ensure allObjects is populated
+    let knownObjects = useExplorerStore.getState().allObjects
     if (knownObjects.length === 0) {
-      const [fetched, roots] = await Promise.all([
-        client.getObjects(),
-        client.getObjects(undefined, false, true)
-      ])
-      setAllObjects(fetched)
+      knownObjects = await client.getObjects()
+      setAllObjects(knownObjects)
+    }
+
+    // Guard: ensure hierarchicalRoots is populated (independent of allObjects check)
+    let roots = useExplorerStore.getState().hierarchicalRoots
+    if (roots.length === 0) {
+      roots = await client.getObjects(undefined, false, true)
       setHierarchicalRoots(roots)
-      knownObjects = fetched
     }
 
-    // Walk parentId chain to build root-first ancestor list
-    const ancestorIds: string[] = []
-    let currentId: string | null | undefined = obj.parentId
+    // Build full expanded set in one pass
+    const { expandedNodes } = useExplorerStore.getState()
+    const newExpanded = new Set(expandedNodes)
+    newExpanded.add('folder:hierarchical')
+
     const visited = new Set<string>()
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId)
-      ancestorIds.unshift(currentId)
-      currentId = knownObjects.find(o => o.elementId === currentId)?.parentId
+    let current = obj
+    while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
+      visited.add(current.elementId)
+      const parent = knownObjects.find(o => o.elementId === current.parentId)
+      if (!parent) break
+      newExpanded.add(`hier:${parent.elementId}`)
+      current = parent
     }
 
-    // Expand the Hierarchy folder and every ancestor so the target node is visible
-    expandNode('folder:hierarchical')
-    ancestorIds.forEach(id => expandNode(`hier:${id}`))
+    // Single write then select — state must be set before the selection fires
+    useExplorerStore.setState({ expandedNodes: newExpanded })
+    selectItem({ type: 'object', id: `hier:${obj.elementId}`, data: obj })
   }
 
   useEffect(() => {
