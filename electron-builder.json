@@ -85,6 +85,7 @@
         "arch": ["x64", "arm64"]
       }
     ],
+    "executableArgs": ["--no-sandbox"],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "icon": "build/icons",
     "category": "Development",
