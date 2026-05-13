@@ -107,6 +107,7 @@ export function Toolbar() {
         destroyClient()
       }
     } catch (err) {
+      setLoading(false)
       setError(err instanceof Error ? err.message : 'Connection failed')
       destroyClient()
     }

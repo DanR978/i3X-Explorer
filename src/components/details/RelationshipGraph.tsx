@@ -41,48 +41,53 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
   const [relatedObjects, setRelatedObjects] = useState<RelatedObject[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tooltip, setTooltip] = useState<{ label: string; x: number; y: number } | null>(null)
   const { allObjects, selectItem, setAllObjects, setHierarchicalRoots } = useExplorerStore()
 
   const handleNodeClick = async (related: RelatedObject) => {
     const client = getClient()
     if (!client) return
 
-    // Resolve the full object (use cache if available)
-    const cached = allObjects.find(o => o.elementId === related.elementId)
-    const obj: ObjectInstance = cached ?? await client.getObject(related.elementId)
+    try {
+      // Resolve the full object (use cache if available)
+      const cached = allObjects.find(o => o.elementId === related.elementId)
+      const obj: ObjectInstance = cached ?? await client.getObject(related.elementId)
 
-    // Guard: ensure allObjects is populated
-    let knownObjects = useExplorerStore.getState().allObjects
-    if (knownObjects.length === 0) {
-      knownObjects = await client.getObjects()
-      setAllObjects(knownObjects)
+      // Guard: ensure allObjects is populated
+      let knownObjects = useExplorerStore.getState().allObjects
+      if (knownObjects.length === 0) {
+        knownObjects = await client.getObjects()
+        setAllObjects(knownObjects)
+      }
+
+      // Guard: ensure hierarchicalRoots is populated (independent of allObjects check)
+      let roots = useExplorerStore.getState().hierarchicalRoots
+      if (roots.length === 0) {
+        roots = await client.getObjects(undefined, false, true)
+        setHierarchicalRoots(roots)
+      }
+
+      // Build full expanded set in one pass
+      const { expandedNodes } = useExplorerStore.getState()
+      const newExpanded = new Set(expandedNodes)
+      newExpanded.add('folder:hierarchical')
+
+      const visited = new Set<string>()
+      let current = obj
+      while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
+        visited.add(current.elementId)
+        const parent = knownObjects.find(o => o.elementId === current.parentId)
+        if (!parent) break
+        newExpanded.add(`hier:${parent.elementId}`)
+        current = parent
+      }
+
+      // Single write then select — state must be set before the selection fires
+      useExplorerStore.setState({ expandedNodes: newExpanded })
+      selectItem({ type: 'object', id: `hier:${obj.elementId}`, data: obj })
+    } catch (err) {
+      console.error('Failed to navigate to node:', err)
     }
-
-    // Guard: ensure hierarchicalRoots is populated (independent of allObjects check)
-    let roots = useExplorerStore.getState().hierarchicalRoots
-    if (roots.length === 0) {
-      roots = await client.getObjects(undefined, false, true)
-      setHierarchicalRoots(roots)
-    }
-
-    // Build full expanded set in one pass
-    const { expandedNodes } = useExplorerStore.getState()
-    const newExpanded = new Set(expandedNodes)
-    newExpanded.add('folder:hierarchical')
-
-    const visited = new Set<string>()
-    let current = obj
-    while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
-      visited.add(current.elementId)
-      const parent = knownObjects.find(o => o.elementId === current.parentId)
-      if (!parent) break
-      newExpanded.add(`hier:${parent.elementId}`)
-      current = parent
-    }
-
-    // Single write then select — state must be set before the selection fires
-    useExplorerStore.setState({ expandedNodes: newExpanded })
-    selectItem({ type: 'object', id: `hier:${obj.elementId}`, data: obj })
   }
 
   useEffect(() => {
@@ -158,7 +163,30 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
   }
 
   return (
-    <div className="w-full overflow-auto">
+    <div
+      className="w-full overflow-auto relative"
+      onMouseMove={(e) => {
+        if (tooltip) {
+          const rect = e.currentTarget.getBoundingClientRect()
+          setTooltip(t => t ? { ...t, x: e.clientX - rect.left, y: e.clientY - rect.top } : null)
+        }
+      }}
+      onMouseLeave={() => setTooltip(null)}
+    >
+      {tooltip && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 12,
+            top: tooltip.y - 36,
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}
+          className="px-2 py-1 text-xs rounded shadow-lg bg-i3x-surface border border-i3x-border text-i3x-text whitespace-nowrap"
+        >
+          {tooltip.label}
+        </div>
+      )}
       <svg
         width="650"
         height="465"
@@ -187,7 +215,14 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
         })}
 
         {/* Center object (selected) */}
-        <g transform={`translate(${CENTER_X - BOX_WIDTH / 2}, ${CENTER_Y - BOX_HEIGHT / 2})`}>
+        <g
+          transform={`translate(${CENTER_X - BOX_WIDTH / 2}, ${CENTER_Y - BOX_HEIGHT / 2})`}
+          onMouseEnter={(e) => {
+            const rect = e.currentTarget.closest('.relative')!.getBoundingClientRect()
+            setTooltip({ label: object.displayName, x: e.clientX - rect.left, y: e.clientY - rect.top })
+          }}
+          onMouseLeave={() => setTooltip(null)}
+        >
           <rect
             width={BOX_WIDTH}
             height={BOX_HEIGHT}
@@ -234,6 +269,11 @@ export function RelationshipGraph({ object }: RelationshipGraphProps) {
               transform={`translate(${pos.x - BOX_WIDTH / 2}, ${pos.y - BOX_HEIGHT / 2})`}
               style={{ cursor: 'pointer' }}
               onClick={() => handleNodeClick(related)}
+              onMouseEnter={(e) => {
+                const rect = e.currentTarget.closest('.relative')!.getBoundingClientRect()
+                setTooltip({ label: related.displayName, x: e.clientX - rect.left, y: e.clientY - rect.top })
+              }}
+              onMouseLeave={() => setTooltip(null)}
             >
               <rect
                 width={BOX_WIDTH}

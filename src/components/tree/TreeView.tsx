@@ -53,7 +53,6 @@ const FolderTypeIcon = () => (
 // metadata.system.nodeClass), with a typeId/sourceTypeId keyword fallback.
 const ObjectClassIcon = () => <span>📦</span>
 const VariableClassIcon = () => <span>📊</span>
-const OtherClassIcon = () => <span>⚙️</span>
 
 function bucketInstance(obj: ObjectInstance | undefined): 'object' | 'variable' | 'other' {
   if (!obj) return 'other'
@@ -212,9 +211,8 @@ function TreeNode({ id, label, type, data, depth, hasChildren, count, children }
         }
         // Otherwise bucket into one of three lowest-common-denominator classes.
         switch (bucketInstance(obj)) {
-          case 'object': return <ObjectClassIcon />
           case 'variable': return <VariableClassIcon />
-          default: return <OtherClassIcon />
+          default: return <ObjectClassIcon />
         }
       }
       case 'folder':
