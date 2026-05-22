@@ -68,7 +68,7 @@ nvm use 20  # or: nvm use (if .nvmrc is configured)
 ./scripts/generate-icons.sh
 
 # Build for all platforms (best way, recommended for releases)
-./scripts/build-all.sh [mac|win|linux|all]
+./scripts/build-all.sh [mac|win|linux|web|all]
 
 # Platform-specific builds
 npm run build:all          # All
@@ -77,6 +77,7 @@ npm run build:mac:x64      # macOS Intel only
 npm run build:mac:arm64    # macOS Apple Silicon only
 npm run build:win          # Windows (x64 + x86 + portable)
 npm run build:linux        # Linux (AppImage + tar.gz)
+npm run build:web          # Web (static files → dist-web/, zip → release/{version}/)
 ```
 
 ### macOS Notarization
@@ -127,6 +128,7 @@ Full setup walkthrough: see `WINDOWS-SIGNING.md`.
 | macOS | `.dmg`, `.zip` (x64 & arm64) |
 | Windows | `.exe` installer, portable `.exe` |
 | Linux | `.AppImage`, `.tar.gz` (x64 & arm64) |
+| Web | `-web.zip` (extract to any static web server) |
 
 ### Linux AppImage Compatibility
 
@@ -154,6 +156,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 ## Features
 
 - Connect to I3X servers (default: https://api.i3x.dev/v1)
+- Ignore certificate errors checkbox in connection dialog (Electron only) — for self-signed / dev servers; persisted across restarts
 - Browse hierarchical tree: Namespaces → ObjectTypes → Objects
 - Browse flat Objects list (lazy-loaded)
 - Expand compositional objects to see children
@@ -165,6 +168,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Search/filter tree nodes (inline sidebar filter)
 - Global object search modal (🔍 toolbar icon or ⌘K / Ctrl+K) — searches all objects by name or elementId, shows breadcrumb path, navigates to and expands the match in the tree (Hierarchy preferred, Objects flat as fallback)
 - Light/dark theme toggle (persists across restarts; falls back to OS preference)
+- Web deployment: `dist-web/` can be served as a static site; `config.json` pre-populates the server URL and recent connections list on first visit
 
 ## Key Resources
 
@@ -461,6 +465,26 @@ location / {
 - `SubscriptionPanel` catches these via `isSubscriptionGoneError()` and calls `handleRecovery()`: tears down the stale subscription, creates a fresh one, re-registers monitored items, resumes streaming, and updates `activeSubscriptionId`
 - Recovery is capped at 3 attempts (`recoveryAttemptsRef`); the counter resets to 0 on the first successful data delivery
 - Polling path errors from `client.sync()` use string-prefix matching as fallback (those errors come from `client.ts`, not `subscription.ts`)
+
+### Subscribe Error Handling
+- `ObjectDetail.handleSubscribe` shows an inline error below the Subscribe button if `registerMonitoredItems` throws; the button is disabled and relabelled "Subscribing..." during the async call
+- If a subscription was freshly created by `createSubscription` but `registerMonitoredItems` then fails, the new subscription is removed from the store and a best-effort `deleteSubscription` is fired to avoid leaving an empty orphan on the server
+- The error message clears automatically when the user navigates to a different object
+
+### Ignore Certificate Errors (Electron only)
+- Checkbox in the connection dialog, hidden in web mode (`window.electronAPI` guard)
+- Stored as `ignoreCertErrors: boolean` in the connection store (persisted to localStorage)
+- On save: calls `window.electronAPI.setIgnoreCertErrors(flag)` → IPC send → module-level flag in `electron/main.ts`
+- On app startup: `App.tsx` syncs the persisted value to the main process via the same IPC call so the setting survives restarts
+- Main process registers `app.on('certificate-error', ...)` at startup; when the flag is set it calls `event.preventDefault(); callback(true)` to bypass the error
+
+### Web Build
+- Config: `vite.web.config.ts` — must use `base: './'` so all asset paths in `index.html` are document-relative, allowing deployment to any subdirectory path
+- The `index.html` source uses relative (no leading `/`) hrefs for favicon and icons for the same reason
+- Runtime server config: `src/main.tsx` fetches `./config.json` on startup; if no `localStorage` state exists yet, `serverUrl` and `recentUrls` from that file are applied as defaults
+- On a git-synced server, put overrides in `config.local.json` at the repo root — `scripts/deploy-web.sh` copies it to `dist-web/config.json` after each build
+- `scripts/deploy-web.sh` runs `git pull` then `npm ci` then `npm run build:web` then optionally reloads nginx; triggered by `sudo systemctl restart i3x-explorer-web`
+- Live deployment: https://explorer.i3x.dev (nginx serving `dist-web/` from the cloned repo at `/home/cesmii/repos/i3X-Explorer`)
 
 ### SVG Tooltips in Electron
 - Electron's Chromium suppresses native SVG `<title>` tooltips — they never appear
