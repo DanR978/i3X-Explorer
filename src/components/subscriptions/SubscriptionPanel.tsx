@@ -80,6 +80,9 @@ export function SubscriptionPanel() {
       removeMonitoredItem(oldSubscriptionId, elementId)
     })
     removeSubscription(oldSubscriptionId)
+    // Best-effort delete on the server — the subscription is likely already gone (404/410)
+    // but this cleans up the clientId entry from the client-side map.
+    try { await client.deleteSubscription(oldSubscriptionId) } catch { /* already gone */ }
 
     try {
       const { subscriptionId: newId } = await client.createSubscription()
