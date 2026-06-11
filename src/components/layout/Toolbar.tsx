@@ -25,6 +25,7 @@ export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
   const [showV0Blocked, setShowV0Blocked] = useState(false)
+  const [redirectNotice, setRedirectNotice] = useState<{ from: string; to: string } | null>(null)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
 
@@ -38,7 +39,9 @@ export function Toolbar() {
     serverUrl,
     credentials,
     getCredentialsForUrl,
+    saveCredentialsForUrl,
     setCredentials,
+    setServerUrl,
     isConnected,
     isConnecting,
     error,
@@ -67,6 +70,7 @@ export function Toolbar() {
   const handleConnect = async () => {
     setConnecting(true)
     setError(null)
+    setRedirectNotice(null)
 
     // Use saved credentials if none are currently set
     const activeCredentials = credentials ?? getCredentialsForUrl(serverUrl)
@@ -88,7 +92,21 @@ export function Toolbar() {
         }
         setConnected(true)
         setApiVersion(detectedVersion)
-        addRecentUrl(serverUrl)
+
+        // The server may have redirected during version detection (e.g. http → https);
+        // the client adopted the final URL. Sync it back to the store so the toolbar
+        // shows the real URL, future connects skip the redirect, and saved credentials
+        // follow the new URL. Compare against the trailing-slash-stripped input since
+        // the client constructor strips it too.
+        const finalUrl = client.getBaseUrl()
+        if (finalUrl !== serverUrl.replace(/\/$/, '')) {
+          setServerUrl(finalUrl)
+          if (activeCredentials) {
+            saveCredentialsForUrl(finalUrl, activeCredentials)
+          }
+          setRedirectNotice({ from: serverUrl, to: finalUrl })
+        }
+        addRecentUrl(finalUrl)
 
         // Load initial data
         setLoading(true)
@@ -129,6 +147,7 @@ export function Toolbar() {
     resetExplorer()
     clearSubscriptions()
     setApiVersion(null)
+    setRedirectNotice(null)
   }
 
   return (
@@ -261,6 +280,35 @@ export function Toolbar() {
         <span className="text-xs text-i3x-error truncate max-w-xs" title={error}>
           {error}
         </span>
+      )}
+
+      {redirectNotice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
+            <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
+              <span className="text-i3x-warning text-base">↪️</span>
+              <h2 className="text-sm font-semibold text-i3x-text">Server Redirected</h2>
+            </div>
+            <div className="p-4 space-y-3 text-sm text-i3x-text">
+              <p>
+                The server at <span className="font-mono break-all">{redirectNotice.from}</span> redirected
+                this connection to <span className="font-mono break-all">{redirectNotice.to}</span>.
+              </p>
+              <p>
+                The server URL has been updated to the new address, and any saved
+                credentials were carried over. Future connections will use it directly.
+              </p>
+            </div>
+            <div className="px-4 py-3 border-t border-i3x-border flex justify-end">
+              <button
+                onClick={() => setRedirectNotice(null)}
+                className="px-4 py-1.5 text-sm bg-i3x-primary text-white rounded transition-colors hover:bg-i3x-primary/80"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}

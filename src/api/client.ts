@@ -198,6 +198,19 @@ export class I3XClient {
       Object.assign(headers, buildAuthHeaders(this.credentials));
 
       const response = await fetch(url, { method: 'GET', headers })
+
+      // If the server redirected (e.g. http → https upgrade), adopt the final URL
+      // for all subsequent requests. GETs survive a 301/302 redirect but browsers
+      // convert POST to GET and drop the body, so every POST would fail otherwise.
+      // Only adopt when the final URL still ends in /info — a redirect to some
+      // unrelated page (login portal, captive portal) must not corrupt the base.
+      if (response.redirected && response.url) {
+        const match = response.url.match(/^(.+?)\/info\/?$/)
+        if (match) {
+          this.baseUrl = match[1]
+        }
+      }
+
       if (!response.ok) {
         this.apiVersion = 'v0'
         return
