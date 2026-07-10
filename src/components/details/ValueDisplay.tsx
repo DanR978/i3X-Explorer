@@ -74,7 +74,8 @@ export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
               Type: <span className="text-i3x-text">{value.dataType}</span>
             </span>
           )}
-          {value.quality && <StatusFacets code={value.quality} variant="labeled" />}
+          {/* ml-auto pushes the status badges to the right edge of the bar. */}
+          {value.quality && <StatusFacets code={value.quality} variant="labeled" className="ml-auto" />}
         </div>
       )}
 
