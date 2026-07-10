@@ -14,6 +14,12 @@ import type { ObjectInstance } from '../../api/types'
  */
 export interface ElementNavigation {
   selectElement: (elementId: string) => void
+  /**
+   * Navigate to an object we already hold in full — e.g. a related object just
+   * fetched from POST /objects/related, which may not be in the store's flat
+   * list. Unlike selectElement this never no-ops for want of a store entry.
+   */
+  selectObject: (object: ObjectInstance) => void
   showHome: () => void
 }
 
@@ -59,9 +65,25 @@ export function useElementNavigation(): ElementNavigation {
     selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target })
   }, [])
 
+  const selectObject = useCallback((object: ObjectInstance) => {
+    // Prefer the store's copy (kept in sync by the poll); fall back to the object
+    // we were handed. Ancestor expansion walks whatever the store knows.
+    const { objectIndex, expandedNodes, selectItem } = useExplorerStore.getState()
+    const target = objectIndex.get(object.elementId) ?? object
+
+    const expanded = new Set(expandedNodes)
+    expanded.add('folder:hierarchical')
+    for (const ancestor of buildAncestorChain(target, objectIndex)) {
+      expanded.add(`hier:${ancestor.elementId}`)
+    }
+
+    useExplorerStore.setState({ expandedNodes: expanded })
+    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target })
+  }, [])
+
   const showHome = useCallback(() => {
     useExplorerStore.getState().selectItem(null)
   }, [])
 
-  return { selectElement, showHome }
+  return { selectElement, selectObject, showHome }
 }
