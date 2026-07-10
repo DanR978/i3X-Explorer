@@ -24,11 +24,11 @@ const MAX_HISTORY = 50
 
 // A node is only visible once every folder/ancestor above it is expanded, so
 // restoring a selection means restoring that path too. Mirrors the expansion
-// SearchModal and RelationshipGraph perform before they call selectItem.
+// SearchModal and the main panel perform before they call selectItem.
 function expandedPathTo(
   item: SelectedItem,
   expandedNodes: Set<string>,
-  allObjects: ObjectInstance[]
+  objectIndex: Map<string, ObjectInstance>
 ): Set<string> {
   const expanded = new Set(expandedNodes)
 
@@ -38,7 +38,9 @@ function expandedPathTo(
     let current = item.data as ObjectInstance
     while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
       visited.add(current.elementId)
-      const parent = allObjects.find(o => o.elementId === current.parentId)
+      // O(1) lookup: a per-ancestor scan of allObjects made Back/Forward
+      // O(depth × n), which is ~1M comparisons on a 50k catalog.
+      const parent = objectIndex.get(current.parentId)
       if (!parent) break
       expanded.add(`hier:${parent.elementId}`)
       current = parent
@@ -76,6 +78,10 @@ interface ExplorerState {
   // The hierarchy view looks up children here in O(1) instead of scanning the
   // entire allObjects array (O(n)) on every node.
   childrenByParent: Map<string, ObjectInstance[]>
+  // elementId → object, rebuilt once whenever allObjects changes. Ancestor walks
+  // (breadcrumb, back/forward, search results) used to call allObjects.find per
+  // level, making each walk O(depth × n). With this they are O(depth).
+  objectIndex: Map<string, ObjectInstance>
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
   // Visited selections, oldest first. historyIndex is the cursor into it, or -1
@@ -119,6 +125,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   compositionCache: new Map(),
   typeIndex: new Map(),
   childrenByParent: new Map(),
+  objectIndex: new Map(),
   expandedNodes: new Set(),
   selectedItem: null,
   history: [],
@@ -143,18 +150,20 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   setAllObjects: (objects) => {
-    // Index children by parentId once here so the hierarchy view can resolve a
-    // node's children with a single Map lookup instead of filtering the whole
-    // list per node.
+    // Index children by parentId and objects by elementId once here, so the
+    // hierarchy view resolves a node's children — and ancestor walks resolve a
+    // parent — with a single Map lookup instead of scanning the whole list.
     const childrenByParent = new Map<string, ObjectInstance[]>()
+    const objectIndex = new Map<string, ObjectInstance>()
     for (const o of objects) {
+      objectIndex.set(o.elementId, o)
       const pid = o.parentId
       if (!pid) continue
       const arr = childrenByParent.get(pid)
       if (arr) arr.push(o)
       else childrenByParent.set(pid, [o])
     }
-    set({ allObjects: objects, childrenByParent })
+    set({ allObjects: objects, childrenByParent, objectIndex })
   },
   setHierarchicalRoots: (roots) => set({ hierarchicalRoots: roots }),
 
@@ -219,24 +228,24 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   // goBack/goForward restore a selection directly rather than calling selectItem,
   // which would push the entry back onto the stack and trap the cursor at the end.
   goBack: () => {
-    const { history, historyIndex, expandedNodes, allObjects } = get()
+    const { history, historyIndex, expandedNodes, objectIndex } = get()
     if (historyIndex <= 0) return
     const target = history[historyIndex - 1]
     set({
       selectedItem: target,
       historyIndex: historyIndex - 1,
-      expandedNodes: expandedPathTo(target, expandedNodes, allObjects),
+      expandedNodes: expandedPathTo(target, expandedNodes, objectIndex),
     })
   },
 
   goForward: () => {
-    const { history, historyIndex, expandedNodes, allObjects } = get()
+    const { history, historyIndex, expandedNodes, objectIndex } = get()
     if (historyIndex >= history.length - 1) return
     const target = history[historyIndex + 1]
     set({
       selectedItem: target,
       historyIndex: historyIndex + 1,
-      expandedNodes: expandedPathTo(target, expandedNodes, allObjects),
+      expandedNodes: expandedPathTo(target, expandedNodes, objectIndex),
     })
   },
 
@@ -256,6 +265,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     compositionCache: new Map(),
     typeIndex: new Map(),
     childrenByParent: new Map(),
+  objectIndex: new Map(),
     expandedNodes: new Set(),
     selectedItem: null,
     history: [],

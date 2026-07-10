@@ -127,20 +127,5 @@ html, body, #root {
   @apply cursor-row-resize;
 }
 
-/* Quality indicator */
-.quality-good {
-  @apply text-i3x-success;
-}
-
-.quality-bad {
-  @apply text-i3x-error;
-}
-
-.quality-uncertain {
-  @apply text-i3x-warning;
-}
-
-/* Quality strings outside the normative enum (Good | GoodNoData | Bad | Uncertain) */
-.quality-unknown {
-  @apply text-i3x-secondary;
-}
+/* Status colors live in ElementStatus.tsx (StatusFacets), which splits a status
+   code into its quality and data-presence facets. */

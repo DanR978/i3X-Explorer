@@ -5,8 +5,9 @@ import { getClient } from './api/client'
 import { Toolbar } from './components/layout/Toolbar'
 import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
-import { HistoryPanel } from './components/layout/HistoryPanel'
-import { BottomPanel } from './components/layout/BottomPanel'
+import { StatusBar } from './components/layout/StatusBar'
+import { SubscriptionTransportProvider } from './components/subscriptions/SubscriptionTransport'
+import { SubscriptionsDrawer } from './components/subscriptions/SubscriptionsDrawer'
 import { ConnectionDialog } from './components/connection/ConnectionDialog'
 import { UpdateChecker } from './components/updater/UpdateChecker'
 
@@ -34,29 +35,32 @@ function App() {
   }, [])
 
   return (
-    <div className="h-full flex flex-col bg-i3x-bg">
-      <Toolbar />
+    // The subscription transport lives above the views so switching tabs (or
+    // navigating away from an element) never tears down a live stream.
+    <SubscriptionTransportProvider>
+      <div className="h-full flex flex-col bg-i3x-bg">
+        <Toolbar />
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar - Tree browser */}
-        <Sidebar />
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          {/* Left sidebar - Tree browser */}
+          <Sidebar />
 
-        {/* Main content area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Details panel */}
-          <MainPanel />
-
-          {/* History panel */}
-          <HistoryPanel />
-
-          {/* Bottom panel - Subscriptions */}
-          <BottomPanel />
+          {/* Main content area — Home shell or tabbed element detail */}
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <MainPanel />
+          </div>
         </div>
-      </div>
 
-      {showConnectionDialog && <ConnectionDialog />}
-      <UpdateChecker />
-    </div>
+        {/* Subscriptions are global, not element-scoped, so they get a drawer
+            spanning the window rather than a tab inside one element. */}
+        <SubscriptionsDrawer />
+
+        <StatusBar />
+
+        {showConnectionDialog && <ConnectionDialog />}
+        <UpdateChecker />
+      </div>
+    </SubscriptionTransportProvider>
   )
 }
 

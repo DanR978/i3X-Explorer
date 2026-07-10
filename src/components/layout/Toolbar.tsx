@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
-import { createClient, destroyClient, getClient, type ApiVersion } from '../../api/client'
+import { createClient, destroyClient, getClient } from '../../api/client'
 import { SearchModal } from '../search/SearchModal'
 import iconPng from '/icon.png'
 
@@ -23,7 +23,6 @@ const POLL_OPTIONS = [
 
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [apiVersion, setApiVersion] = useState<ApiVersion | null>(null)
   const [showV0Blocked, setShowV0Blocked] = useState(false)
   const [redirectNotice, setRedirectNotice] = useState<{ from: string; to: string } | null>(null)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
@@ -53,7 +52,10 @@ export function Toolbar() {
     disconnect: disconnectStore
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward } = useExplorerStore()
+  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore()
+  // Clearing the selection is what "Home" means — the main panel renders its
+  // Home shell whenever nothing is selected.
+  const showHome = () => selectItem(null)
   const canGoBack = useExplorerStore(s => s.historyIndex > 0)
   const canGoForward = useExplorerStore(s => s.historyIndex < s.history.length - 1)
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
@@ -110,7 +112,6 @@ export function Toolbar() {
           return
         }
         setConnected(true)
-        setApiVersion(detectedVersion)
 
         // The server may have redirected during version detection (e.g. http → https);
         // the client adopted the final URL. Sync it back to the store so the toolbar
@@ -165,17 +166,22 @@ export function Toolbar() {
     disconnectStore()
     resetExplorer()
     clearSubscriptions()
-    setApiVersion(null)
     setRedirectNotice(null)
   }
 
   return (
-    <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-4 gap-4 drag-region">
+    <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-3 gap-2 sm:gap-3 drag-region flex-shrink-0">
       {/* macOS traffic light spacing */}
       {window.electronAPI?.platform === 'darwin' && <div className="w-16" />}
 
-      <img src={iconPng} alt="" className="w-5 h-5" />
-      <h1 className="text-sm font-semibold text-i3x-text">i3X Explorer</h1>
+      <button
+        onClick={showHome}
+        title="Model overview"
+        className="no-drag flex items-center gap-2 rounded px-1 py-1 hover:bg-i3x-bg transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+      >
+        <img src={iconPng} alt="" className="w-5 h-5" />
+        <h1 className="hidden md:block text-sm font-semibold text-i3x-text whitespace-nowrap">i3X Explorer</h1>
+      </button>
 
       <button
         onClick={toggleSidebar}
@@ -188,6 +194,18 @@ export function Toolbar() {
           <line x1="9" y1="3" x2="9" y2="21" />
           {/* Fill the side rail when expanded so the icon reads as "panel shown" */}
           {!sidebarCollapsed && <rect x="3" y="3" width="6" height="18" fill="currentColor" stroke="none" />}
+        </svg>
+      </button>
+
+      <button
+        onClick={showHome}
+        title="Home"
+        aria-label="Home"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 10.5 12 3l9 7.5" />
+          <path d="M5 9.5V21h14V9.5" />
         </svg>
       </button>
 
@@ -217,10 +235,11 @@ export function Toolbar() {
         </svg>
       </button>
 
-      <div className="flex-1 flex items-center gap-2">
+      <div className="flex-1 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setShowConnectionDialog(true)}
-          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors truncate max-w-2xl"
+          title={serverUrl || 'Click to configure'}
+          className="px-3 py-1.5 text-xs font-mono bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none truncate min-w-0 max-w-[10rem] sm:max-w-sm lg:max-w-2xl"
         >
           {serverUrl || 'Click to configure'}
         </button>
@@ -245,30 +264,28 @@ export function Toolbar() {
           onClick={() => setShowSearch(true)}
           disabled={!isConnected}
           title="Search objects (⌘K)"
-          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+          aria-label="Search objects"
+          className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
         >
-          <span>🔍</span>
-          <span>Search</span>
+          <span aria-hidden="true">🔍</span>
+          <span className="hidden sm:inline">Search</span>
         </button>
       </div>
 
-      {/* Settings gear + theme toggle */}
-      <div className="flex items-center no-drag">
-        {window.electronAPI && (
-          <button
-            onClick={() => window.electronAPI?.openDevTools()}
-            className="px-3 py-1.5 text-xs bg-orange-500/20 text-orange-400 rounded border border-orange-500/30 hover:bg-orange-500/30 transition-colors mr-1"
-          >
-            Developer
-          </button>
-        )}
+      {/* Settings gear + theme toggle. Connection status, counts and the
+          Developer button now live in the bottom status bar. */}
+      <div className="flex items-center no-drag flex-shrink-0">
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
             title="Settings"
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+            aria-label="Settings"
+            className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
-            ⚙️
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
           {showSettingsMenu && (
             <>
@@ -301,42 +318,34 @@ export function Toolbar() {
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-i3x-bg transition-colors text-base"
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          className="w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {/* The icon names the theme you'd switch *to*, matching the tooltip. */}
+          {theme === 'dark' ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
         </button>
       </div>
 
-      {/* Connection status */}
-      <div className="flex items-center gap-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            isConnected
-              ? 'bg-i3x-success'
-              : isConnecting
-              ? 'bg-i3x-warning animate-pulse'
-              : 'bg-i3x-secondary'
-          }`}
-        />
-        <span className="text-xs text-i3x-text-muted">
-          {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
-        </span>
-        {isConnected && apiVersion && (
-          <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
-            apiVersion === 'v1'
-              ? 'bg-i3x-success/10 text-i3x-success border-i3x-success/20'
-              : 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-          }`}>
-            {apiVersion === 'v1-beta' ? 'v1 Beta' : apiVersion}
-          </span>
-        )}
-        {isConnected && credentials && (
-          <span title="Authenticated connection">🔒</span>
-        )}
-      </div>
-
+      {/* Never hide this: a failed connect has no other visible feedback in the
+          toolbar now that the status readouts live in the bottom bar. */}
       {error && (
-        <span className="text-xs text-i3x-error truncate max-w-xs" title={error}>
+        <span className="text-xs text-i3x-error truncate max-w-[8rem] lg:max-w-xs flex-shrink-0" title={error}>
           {error}
         </span>
       )}

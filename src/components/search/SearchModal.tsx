@@ -13,13 +13,15 @@ interface SearchModalProps {
   onClose: () => void
 }
 
-function buildAncestorPath(obj: ObjectInstance, allObjects: ObjectInstance[]): string[] {
+function buildAncestorPath(obj: ObjectInstance, objectIndex: Map<string, ObjectInstance>): string[] {
   const path: string[] = []
   const visited = new Set<string>()
   let current = obj
   while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
     visited.add(current.elementId)
-    const parent = allObjects.find(o => o.elementId === current.parentId)
+    // O(1) index lookup: this runs per ancestor for up to 50 results per
+    // keystroke, so allObjects.find here was ~20M comparisons on a 50k catalog.
+    const parent = objectIndex.get(current.parentId)
     if (!parent) break
     path.unshift(parent.displayName || parent.elementId)
     current = parent
@@ -82,22 +84,25 @@ export function SearchModal({ onClose }: SearchModalProps) {
 
       const lower = searchQuery.toLowerCase()
       const rootIds = new Set(roots.map(r => r.elementId))
+      // Read fresh: a first-run fetch above rebuilt the store's index.
+      const objectIndex = useExplorerStore.getState().objectIndex
 
-      const matches = objects
-        .filter(obj =>
-          (obj.displayName && obj.displayName.toLowerCase().includes(lower)) ||
-          obj.elementId.toLowerCase().includes(lower)
-        )
-        .slice(0, MAX_RESULTS)
-
-      const searchResults: SearchResult[] = matches.map(obj => {
+      // One O(n) pass that stops at the cap — no throwaway filter/slice/map
+      // arrays. Cap is applied in store order (before sort), same as before.
+      const searchResults: SearchResult[] = []
+      for (const obj of objects) {
+        const name = obj.displayName
+        if (!(name && name.toLowerCase().includes(lower)) && !obj.elementId.toLowerCase().includes(lower)) {
+          continue
+        }
         const useHierarchy = rootIds.has(obj.elementId) || !!(obj.parentId && obj.parentId !== '/')
-        return {
+        searchResults.push({
           object: obj,
           useHierarchy,
-          hierarchyPath: useHierarchy ? buildAncestorPath(obj, objects) : [],
-        }
-      })
+          hierarchyPath: useHierarchy ? buildAncestorPath(obj, objectIndex) : [],
+        })
+        if (searchResults.length >= MAX_RESULTS) break
+      }
 
       // Hierarchy matches first, then alphabetical within each group
       searchResults.sort((a, b) => {
