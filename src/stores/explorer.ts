@@ -19,6 +19,43 @@ export interface SelectedItem {
   data: Namespace | ObjectType | ObjectInstance
 }
 
+// Bounded so a long browsing session can't grow the stack without limit.
+const MAX_HISTORY = 50
+
+// A node is only visible once every folder/ancestor above it is expanded, so
+// restoring a selection means restoring that path too. Mirrors the expansion
+// SearchModal and RelationshipGraph perform before they call selectItem.
+function expandedPathTo(
+  item: SelectedItem,
+  expandedNodes: Set<string>,
+  allObjects: ObjectInstance[]
+): Set<string> {
+  const expanded = new Set(expandedNodes)
+
+  if (item.id.startsWith('hier:')) {
+    expanded.add('folder:hierarchical')
+    const visited = new Set<string>()
+    let current = item.data as ObjectInstance
+    while (current.parentId && current.parentId !== '/' && !visited.has(current.elementId)) {
+      visited.add(current.elementId)
+      const parent = allObjects.find(o => o.elementId === current.parentId)
+      if (!parent) break
+      expanded.add(`hier:${parent.elementId}`)
+      current = parent
+    }
+  } else if (item.id.startsWith('obj:')) {
+    // The Objects folder lists every object at the top level, so no ancestor walk.
+    expanded.add('folder:objects')
+  } else if (item.id.startsWith('ns:')) {
+    expanded.add('folder:namespaces')
+  } else if (item.id.startsWith('type:')) {
+    expanded.add('folder:namespaces')
+    expanded.add(`ns:${(item.data as ObjectType).namespaceUri}`)
+  }
+
+  return expanded
+}
+
 interface ExplorerState {
   namespaces: Namespace[]
   objectTypes: ObjectType[]
@@ -41,6 +78,10 @@ interface ExplorerState {
   childrenByParent: Map<string, ObjectInstance[]>
   expandedNodes: Set<string>
   selectedItem: SelectedItem | null
+  // Visited selections, oldest first. historyIndex is the cursor into it, or -1
+  // when nothing has been selected yet.
+  history: SelectedItem[]
+  historyIndex: number
   isLoading: boolean
   searchQuery: string
   pollIntervalMs: number
@@ -58,6 +99,8 @@ interface ExplorerState {
   expandNode: (nodeId: string) => void
   collapseNode: (nodeId: string) => void
   selectItem: (item: SelectedItem | null) => void
+  goBack: () => void
+  goForward: () => void
   setLoading: (loading: boolean) => void
   setSearchQuery: (query: string) => void
   setPollIntervalMs: (ms: number) => void
@@ -78,6 +121,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   childrenByParent: new Map(),
   expandedNodes: new Set(),
   selectedItem: null,
+  history: [],
+  historyIndex: -1,
   isLoading: false,
   searchQuery: '',
   pollIntervalMs: 30_000,
@@ -152,7 +197,49 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ expandedNodes: updated })
   },
 
-  selectItem: (item) => set({ selectedItem: item }),
+  selectItem: (item) => {
+    if (!item) {
+      set({ selectedItem: item })
+      return
+    }
+    const { history, historyIndex } = get()
+    // Re-selecting the current node (clicking an already-selected row) must not
+    // add a second entry, but still refreshes selectedItem with the newer data.
+    if (historyIndex >= 0 && history[historyIndex].id === item.id) {
+      set({ selectedItem: item })
+      return
+    }
+    // Navigating after going back discards the forward entries, like a browser.
+    const entries = history.slice(0, historyIndex + 1)
+    entries.push(item)
+    const trimmed = entries.length > MAX_HISTORY ? entries.slice(-MAX_HISTORY) : entries
+    set({ selectedItem: item, history: trimmed, historyIndex: trimmed.length - 1 })
+  },
+
+  // goBack/goForward restore a selection directly rather than calling selectItem,
+  // which would push the entry back onto the stack and trap the cursor at the end.
+  goBack: () => {
+    const { history, historyIndex, expandedNodes, allObjects } = get()
+    if (historyIndex <= 0) return
+    const target = history[historyIndex - 1]
+    set({
+      selectedItem: target,
+      historyIndex: historyIndex - 1,
+      expandedNodes: expandedPathTo(target, expandedNodes, allObjects),
+    })
+  },
+
+  goForward: () => {
+    const { history, historyIndex, expandedNodes, allObjects } = get()
+    if (historyIndex >= history.length - 1) return
+    const target = history[historyIndex + 1]
+    set({
+      selectedItem: target,
+      historyIndex: historyIndex + 1,
+      expandedNodes: expandedPathTo(target, expandedNodes, allObjects),
+    })
+  },
+
   setLoading: (loading) => set({ isLoading: loading }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setPollIntervalMs: (ms) => set({ pollIntervalMs: ms }),
@@ -171,6 +258,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     childrenByParent: new Map(),
     expandedNodes: new Set(),
     selectedItem: null,
+    history: [],
+    historyIndex: -1,
     isLoading: false,
     searchQuery: ''
   })
