@@ -84,6 +84,38 @@ export interface StreamConfig {
   postBody?: object
 }
 
+/**
+ * A server can accept the TCP connection and then never send an HTTP response.
+ * `fetch` has no default timeout, so those requests stay pending forever and the
+ * UI sits in "Connecting…" with nothing to report. Abort instead.
+ */
+export const REQUEST_TIMEOUT_MS = 15_000
+
+export class TimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Server did not respond within ${Math.round(timeoutMs / 1000)}s`)
+    this.name = 'TimeoutError'
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    // Our abort and a caller's abort look the same; only ours can fire here.
+    if (err instanceof Error && err.name === 'AbortError') throw new TimeoutError(timeoutMs)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export class I3XClient {
   private baseUrl: string
   private credentials: ClientCredentials | null
@@ -157,7 +189,7 @@ export class I3XClient {
       options.body = JSON.stringify(body)
     }
 
-    const response = await fetch(url, options)
+    const response = await fetchWithTimeout(url, options)
     const status = response.status
 
     if (!response.ok) {
@@ -215,7 +247,7 @@ export class I3XClient {
       const headers: Record<string, string> = { 'Accept': 'application/json' }
       Object.assign(headers, buildAuthHeaders(this.credentials));
 
-      const response = await fetch(url, { method: 'GET', headers })
+      const response = await fetchWithTimeout(url, { method: 'GET', headers })
 
       // If the server redirected (e.g. http → https upgrade), adopt the final URL
       // for all subsequent requests. GETs survive a 301/302 redirect but browsers
@@ -254,7 +286,12 @@ export class I3XClient {
         // /info responded OK but body isn't useful — treat as Beta
         this.apiVersion = 'v1-beta'
       }
-    } catch {
+    } catch (err) {
+      // A hung or unreachable server is not a v0 server. Reporting it as one
+      // sends the user to the "Unsupported API Version" dialog for what is
+      // really a network problem, so let the timeout surface as itself.
+      if (err instanceof TimeoutError) throw err
+      // Genuine absence of /info (connection refused, CORS block) means v0.
       this.apiVersion = 'v0'
     }
   }
@@ -663,7 +700,11 @@ export class I3XClient {
       await this.detectVersion()
       await this.getNamespaces()
       return true
-    } catch {
+    } catch (err) {
+      // Everything else collapses to a generic "failed to connect", but a
+      // timeout is worth naming: it's the difference between "wrong URL" and
+      // "the server is up and not answering".
+      if (err instanceof TimeoutError) throw err
       return false
     }
   }

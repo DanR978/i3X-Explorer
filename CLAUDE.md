@@ -21,11 +21,13 @@ i3x-explorer/
 │   │   ├── types.ts        # TypeScript interfaces
 │   │   └── subscription.ts # SSE subscription handler
 │   ├── components/         # UI components
-│   │   ├── layout/         # Toolbar, Sidebar, MainPanel, BottomPanel
+│   │   ├── layout/         # Toolbar, Sidebar, MainPanel, StatusBar
+│   │   ├── main/           # Home shell, element detail, tabs, breadcrumb
+│   │   ├── graph/          # OverviewGraph (model map), RelationshipTree (cascade)
 │   │   ├── tree/           # TreeView for hierarchy browsing
-│   │   ├── details/        # Detail panels (Namespace, ObjectType, Object)
+│   │   ├── details/        # Namespace/ObjectType detail, ValueDisplay, ElementStatus
 │   │   ├── connection/     # ConnectionDialog
-│   │   └── subscriptions/  # SubscriptionPanel
+│   │   └── subscriptions/  # SubscriptionTransport, SubscriptionsDrawer/View, TrendView
 │   ├── stores/             # Zustand state management
 │   │   ├── connection.ts   # Server connection state
 │   │   ├── explorer.ts     # Tree/selection state
@@ -164,7 +166,8 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - View object details, metadata, and current values
 - Current Value pane has a **Parsed / Raw** toggle — Raw shows the untouched HTTP response body; for composition objects the component rows middle-truncate the elementId and round numeric values, with full id/value/timestamp on hover
 - Copy-to-clipboard floating icon on every JSON pane (object data, schema, raw value, etc.)
-- Relationship graph visualization for non-compositional relationships; click any node to navigate and expand it in the sidebar tree; hover nodes for full-name tooltip. The canvas sizes to its content and keeps the node cluster centered
+- Home shell shows a whole-model relationship map (compositional edges); hover a node for its links, click to open it. Per-element relationships render as a parent/element/children cascade in the Relationships tab
+- Bottom status bar: connection state + API version, server URL, object/namespace counts, subscription count (click to toggle the subscriptions drawer), and Developer tools
 - Subscribe to objects for real-time updates (polling or SSE); subscriptions auto-recover transparently on server-side expiry (HTTP 404/410)
 - Trend chart for numeric subscription values
 - Search/filter tree nodes (inline sidebar filter); tree scrolls horizontally for long/deeply-nested labels
@@ -445,7 +448,7 @@ location / {
 - Light theme is the default (`:root`); dark theme activates via `@media (prefers-color-scheme: dark)` or `[data-theme="dark"]` on `<html>`
 - The toolbar sun/moon button sets `document.documentElement.dataset.theme` and persists the choice to `localStorage`
 - Tailwind tokens use `rgb(var(--i3x-...) / <alpha-value>)` format so opacity modifiers (`/20`, `/50`) continue to work
-- SVG chart components (TrendView, HistoryPanel, RelationshipGraph) use `rgb(var(--i3x-...))` strings in their `COLORS` objects
+- SVG chart components (TrendView, HistoryTab, OverviewGraph, RelationshipTree) use `rgb(var(--i3x-...))` strings rather than raw hex
 
 ### Trend View
 - Stores up to 60 data points per elementId
@@ -461,36 +464,53 @@ location / {
 - **Navigation** on result select: batch-expands `folder:hierarchical` + every `hier:{ancestorId}` up the `parentId` chain, then calls `selectItem` with the `hier:{elementId}` id. Falls back to expanding `folder:objects` and selecting `obj:{elementId}` for non-hierarchy objects
 - Ancestor expansion uses `useExplorerStore.setState({ expandedNodes })` in one write to avoid multiple re-renders
 
-### Relationship Graph Navigation
-- Clicking a node in `RelationshipGraph` navigates to that object in the sidebar tree
-- Uses the same atomic ancestor expansion pattern as SearchModal: reads fresh state via `useExplorerStore.getState()` (not stale closure), builds a complete `newExpanded` Set from the current `expandedNodes`, then commits in one `setState` call before invoking `selectItem`
-- Guards `allObjects` and `hierarchicalRoots` independently — either can be empty without triggering the other's fetch
+### Overview Graph (`src/components/graph/OverviewGraph.tsx`)
+- The whole-model map on the Home shell. Nodes are every object in `allObjects`; **edges are compositional `parentId` links only**. The non-compositional edge types the mockup legend shows (Monitors / Controls / References) live behind `POST /objects/related`, and the panel resolves everything from the store — so they aren't drawn
+- Force-directed layout runs once in a `useMemo`: all-pairs repulsion, springs along edges, pull to centre, with cooling. Node init uses a **seeded** pseudo-random (`seededUnit`), not `Math.random`, so the layout doesn't jitter between renders
+- **`MAX_GRAPH_NODES` (300) is a hard cap.** The pair loop is O(n²) per iteration and every node becomes an SVG element; this app routinely browses catalogs of tens of thousands of objects, which would freeze the renderer. Above the cap the component renders a count and points at the tree
+- Pan/zoom keeps a `{scale, x, y}` transform on a wrapping `<g>`. Wheel zoom is bound with `addEventListener(..., { passive: false })` in an effect — React attaches `onWheel` passively at the root, so `preventDefault()` there is a no-op
+- Node colour comes from `colorForType()` (`graph/nodeColor.ts`): a stable hash of `typeId` into theme tokens, so instances of a type read as a group in both themes
 
-### Relationship Graph Layout
-- The SVG canvas is **derived from content**, not fixed. A single `useMemo` measures each node's circular offset (`halfX`/`halfY` = furthest horizontal/vertical reach), then computes `width`/`height`, the cluster center, node `positions`, and legend position. Sparse or vertically-stacked layouts don't reach the full `RADIUS`, so the canvas shrinks to fit
-- The node cluster is **always centered both axes**: `centerX = width/2`, `centerY = CANVAS_PAD + halfY`. Because center is *defined* as the canvas center, nodes can't drift to one side. The legend is a fixed-size band (`LEGEND_WIDTH`/`LEGEND_HEIGHT`) centered along the bottom (`legendX = (width - LEGEND_WIDTH)/2`) so it no longer skews horizontal centering
-- The SVG is responsive: `viewBox="0 0 {width} {height}"` with `style={{ maxWidth: '100%', height: 'auto' }}`, so it scales down when the pane is cramped while the column sizes to the graph's natural width
-- Changing node box size / spacing only requires editing `BOX_WIDTH`, `BOX_HEIGHT`, `RADIUS`; legend sizing via the `LEGEND_*` constants
+### Relationship Tree (`src/components/graph/RelationshipTree.tsx`)
+- The cascade in the Relationships tab: parent above, the element, children fanned below, joined by orthogonal SVG connectors
+- Connectors are **measured from the laid-out DOM** (`offsetLeft`/`offsetTop` relative to the positioned root), not computed, so they stay correct at any label width. A `ResizeObserver` re-measures on reflow; `setSize` bails out when unchanged so the observer doesn't churn
+- Measurement queries `[data-rt-node]` rather than holding refs on the node components — React 18 does not pass `ref` through to a function component as a prop
+- `MAX_CHILDREN` (24) caps the child row; a composition object can have thousands of children, and the cascade lays them out on one line. Overflow renders a count
 
-### Object Detail Pane (`ObjectDetail` / `ValueDisplay`)
-- **Parsed / Raw value toggle**: a segmented control in the Current Value header (state `valueView` in `ObjectDetail`). Raw renders `value.rawResponse` (the untouched HTTP body) via `JsonViewer`. `client.getValue` retains that body on `LastKnownValue.rawResponse` for both v1 and v0; the batch `getValues` does **not** (only the single-object detail pane needs it)
+### Main Content Panel (`MainPanel` → `HomeView` / `ObjectDetailView`)
+- Two top-level states, driven purely by `selectedItem`: nothing selected → `HomeView` (model counts + `OverviewGraph`); an object selected → `ObjectDetailView` (breadcrumb, title row, and the Overview · Relationships · History tabs). Namespace/object-type selections reuse `SimpleDetailView`, the same header frame without tabs
+- **Navigation contract** (`src/components/main/navigation.ts`): `selectElement(elementId)` resolves the object from `allObjects` (store-only — never fetches), expands the ancestor path in one `setState`, then calls `selectItem`; `showHome()` is `selectItem(null)`. The panel never imports the tree — both sides share `selectItem`, so selection stays in sync. The toolbar's brand and Home button also call `selectItem(null)`
+- **There is no Subscriptions tab.** Subscriptions are global state, not a property of the selected element, so they live in `SubscriptionsDrawer` above the status bar. Subscribing to an element opens the drawer
+- `MainPanel` re-keys `ObjectDetailView` on `elementId` so per-element view state (active tab, loaded value, history range) doesn't bleed across selections
+- **Breadcrumb** folds the middle of deep chains: `collapseCrumbs()` (exported, pure) keeps the outermost and nearest ancestor and hides the rest behind a "…" button that expands in place. A new selection re-collapses it
+- **Identity card** shows exactly five fields (Element ID, Type ID, Parent ID, Namespace URI, Source Type ID) plus Composition/Extended flags. Source Type ID always renders, showing `—` when absent
+- **Responsive**: the title row wraps its actions, the tab strip scrolls horizontally, action labels and the "Object Instance" kind collapse to icons/hide below `sm`, and the toolbar hides the app title, the Search label and the connect error as the window narrows. Status-bar segments drop out at `sm`/`md`
+
+### Status Facets (`ElementStatus` / `ValueDisplay`)
+- A code like `GoodNoData` conflates two orthogonal facets, so `parseStatusCode()` splits them: **quality** (the prefix → Good/Uncertain/Bad/unknown) is carried by COLOR; **data presence** (code doesn't match `/NoData/`) is carried by SHAPE — solid neutral dot vs hollow neutral ring
+- `<StatusFacets code variant="labeled" | "compact" | "dot" />` is the single renderer: `labeled` in Current Value, `compact` in the Subscriptions Quality column, `dot` in the dense composition-component rows. Dots are `aria-hidden` with an `sr-only` sentence, since colour and shape carry the meaning
+- **Parsed / Raw value toggle**: a segmented control in the Current Value card header (state `valueView` in `ObjectDetailView`). Raw renders `value.rawResponse` (the untouched HTTP body) via `JsonViewer`. `client.getValue` retains that body on `LastKnownValue.rawResponse` for both v1 and v0; the batch `getValues` does **not** (only the single-object detail pane needs it)
 - **Component rows** (composition values): the elementId is middle-truncated with a two-span flex trick (head ellipsizes, last `COMPONENT_ID_TAIL` chars stay pinned); numeric values are rounded via `formatComponentValueShort` (`toPrecision(6)` → `Number()` to strip trailing zeros, keeps exponential form). Full id / full-precision value / full timestamp are all in `title` tooltips
 - **Copy-to-clipboard**: `CopyButton` (`src/components/details/CopyButton.tsx`) is a floating corner icon embedded in `JsonViewer`, so every JSON pane gets it for free. Uses `navigator.clipboard`, `stopPropagation` (so it doesn't trigger the collapsed-view expand), and fails silently in insecure contexts
-- **Responsive layout**: graph + value sit side-by-side and stack below **1140px** via Tailwind's arbitrary `min-[1140px]:` variant. The value column carries `min-w-0` so it can shrink and let `ValueDisplay`'s internal truncation engage instead of forcing the pane wide (a classic flexbox `min-width:auto` overflow); the metadata bar uses `flex-wrap`
 
 ### Sidebar Collapse & Tree Horizontal Scroll
 - **Collapse**: `sidebarCollapsed` + `toggleSidebar()` live in the explorer store; the panel-toggle button is at the left of the `Toolbar`. `Sidebar` returns `null` when collapsed but stays mounted, so its drag-`width` state is preserved and restored on expand
 - **Horizontal scroll**: tree labels use `whitespace-nowrap` (not `truncate`) so rows grow to natural width; the tree body is a both-axes scroll area with an inner `w-max min-w-full` wrapper (rows share a uniform width — highlights and count leader-lines stay correct — and overflow horizontally). The filter input is a fixed header above the scroll body so it neither stretches nor scrolls away
 
+### Subscription Transport
+- `SubscriptionTransportProvider` (`src/components/subscriptions/SubscriptionTransport.tsx`) owns the SSE/polling refs and stays mounted for the life of the app, wrapping everything in `App.tsx`. The transport used to live inside the subscriptions panel, so collapsing that panel killed the stream. Now `SubscriptionsDrawer` is purely presentational: closing it hides the UI and the stream keeps running
+- Consumers get `startStream` / `stopStream` / `deleteSubscription` / `usePolling` / `streamUnsupported` via `useSubscriptionTransport()`
+- The provider reads the subscriptions store through `getState()` rather than hook selectors — subscribing would re-render the whole app on every live value
+
 ### Subscription Recovery
 - `src/api/subscription.ts` exports `HttpStatusError` (carries `.status: number`) and `isSubscriptionGoneError(error)` helper
 - HTTP 404/410 on the SSE stream calls `onError` directly instead of entering the reconnect loop — retrying a gone subscription always fails
-- `SubscriptionPanel` catches these via `isSubscriptionGoneError()` and calls `handleRecovery()`: tears down the stale subscription, creates a fresh one, re-registers monitored items, resumes streaming, and updates `activeSubscriptionId`
+- `SubscriptionTransportProvider` catches these via `isSubscriptionGoneError()` and calls `handleRecovery()`: tears down the stale subscription, creates a fresh one, re-registers monitored items, resumes streaming, and updates `activeSubscriptionId`
 - Recovery is capped at 3 attempts (`recoveryAttemptsRef`); the counter resets to 0 on the first successful data delivery
 - Polling path errors from `client.sync()` use string-prefix matching as fallback (those errors come from `client.ts`, not `subscription.ts`)
 
 ### Subscribe Error Handling
-- `ObjectDetail.handleSubscribe` shows an inline error below the Subscribe button if `registerMonitoredItems` throws; the button is disabled and relabelled "Subscribing..." during the async call
+- `ObjectDetailView.handleSubscribe` shows an inline error under the title row if `registerMonitoredItems` throws; the button is disabled and relabelled "Subscribing…" during the async call. On success it switches to the Subscriptions tab
 - If a subscription was freshly created by `createSubscription` but `registerMonitoredItems` then fails, the new subscription is removed from the store and a best-effort `deleteSubscription` is fired to avoid leaving an empty orphan on the server
 - The error message clears automatically when the user navigates to a different object
 

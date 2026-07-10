@@ -29,7 +29,9 @@ interface SubscriptionsState {
   liveValues: Map<string, LiveValue>
   trendData: Map<string, TrendPoint[]> // keyed by elementId
   activeSubscriptionId: string | null
-  isBottomPanelExpanded: boolean
+  // Subscriptions are global, not scoped to the selected element, so they live in
+  // a drawer above the status bar rather than in the element's tabs.
+  isSubscriptionsOpen: boolean
 
   addSubscription: (sub: Subscription) => void
   removeSubscription: (id: string) => void
@@ -38,7 +40,7 @@ interface SubscriptionsState {
   removeMonitoredItem: (subscriptionId: string, elementId: string) => void
   updateLiveValue: (value: LiveValue) => void
   setStreaming: (subscriptionId: string, streaming: boolean) => void
-  setBottomPanelExpanded: (expanded: boolean) => void
+  setSubscriptionsOpen: (open: boolean) => void
   clearAll: () => void
 }
 
@@ -47,7 +49,7 @@ export const useSubscriptionsStore = create<SubscriptionsState>((set, get) => ({
   liveValues: new Map(),
   trendData: new Map(),
   activeSubscriptionId: null,
-  isBottomPanelExpanded: false,
+  isSubscriptionsOpen: false,
 
   addSubscription: (sub) => {
     const { subscriptions } = get()
@@ -127,7 +129,7 @@ export const useSubscriptionsStore = create<SubscriptionsState>((set, get) => ({
     }
   },
 
-  setBottomPanelExpanded: (expanded) => set({ isBottomPanelExpanded: expanded }),
+  setSubscriptionsOpen: (open) => set({ isSubscriptionsOpen: open }),
 
   clearAll: () => set({
     subscriptions: new Map(),
