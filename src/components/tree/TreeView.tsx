@@ -4,7 +4,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
 import type { ObjectType, ObjectInstance } from '../../api/types'
 import { TreeNode } from './TreeNode'
-import { VirtualObjectRows } from './VirtualObjectRows'
+import { VirtualObjectRows, type VirtualObjectRowsHandle } from './VirtualObjectRows'
 import {
   resolveCompositionFlags,
   refreshAllObjects,
@@ -17,6 +17,20 @@ import {
 } from './treeData'
 
 const BACKGROUND_POLL_ENABLED = true
+
+function isFullyVisible(scrollEl: HTMLElement, el: HTMLElement) {
+  const view = scrollEl.getBoundingClientRect()
+  const row = el.getBoundingClientRect()
+  return row.top >= view.top && row.bottom <= view.bottom
+}
+
+// Deliberately not scrollIntoView(): the tree scrolls both axes, and
+// scrollIntoView would also yank it sideways on deeply-nested or long labels.
+function centerVertically(scrollEl: HTMLElement, el: HTMLElement) {
+  const view = scrollEl.getBoundingClientRect()
+  const row = el.getBoundingClientRect()
+  scrollEl.scrollTop += (row.top - view.top) - (scrollEl.clientHeight - row.height) / 2
+}
 
 // Recursive component for rendering objects with their children
 function ObjectNode({
@@ -165,12 +179,50 @@ export function TreeView() {
   // Only the flat Objects folder needs to know its own expansion state here, so
   // its (potentially huge) child list is filtered/built only while it is open.
   const objectsExpanded = useExplorerStore(s => s.expandedNodes.has(OBJECTS_FOLDER_ID))
+  const selectedId = useExplorerStore(s => s.selectedItem?.id ?? null)
   const isConnected = useConnectionStore(state => state.isConnected)
 
   // Shared scroll container + content wrapper, referenced by the virtualized
   // Objects list to window its rows and track its offset within the scroll area.
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  // Bring the selected node into view. Reveal is owned entirely here: an `obj:`
+  // id identifies an object, not a tree, and objects appear both under
+  // Namespaces → ObjectType (plain DOM) and in the windowed Objects list, so a
+  // prefix can't say which one to scroll to. Ask the DOM first — whichever copy
+  // is mounted is the one styled selected — and fall back to the virtualized
+  // list only when the row isn't mounted at all. Runs after VirtualObjectRows'
+  // layout effects, so its measurements are settled by the time we call it.
+  const virtualRowsRef = useRef<VirtualObjectRowsHandle>(null)
+  const lastRevealedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedId) return
+    // Selection unchanged: data moved, the user didn't. Don't fight their scroll.
+    if (lastRevealedRef.current === selectedId) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+
+    // An object can be rendered in more than one place (the flat Objects list
+    // shows it at top level and again under its composition parent), and every
+    // copy shares the selected style. If any copy is already on screen there is
+    // nothing to do; otherwise bring the first one into view.
+    const mounted = scrollEl.querySelectorAll<HTMLElement>('.tree-node.selected')
+    if (mounted.length > 0) {
+      lastRevealedRef.current = selectedId
+      if (!Array.from(mounted).some(el => isFullyVisible(scrollEl, el))) {
+        centerVertically(scrollEl, mounted[0])
+      }
+      return
+    }
+    // Only the flat Objects list windows its rows, so it is the only place a
+    // selected node can exist without a DOM element.
+    if (selectedId.startsWith('obj:') &&
+        virtualRowsRef.current?.revealElementId(selectedId.slice('obj:'.length))) {
+      lastRevealedRef.current = selectedId
+    }
+    // Otherwise leave the ref unset so a later data change retries.
+  }, [selectedId, namespaces, objectTypes, objects, allObjects, hierarchicalRoots, childrenByParent])
 
   const refreshTree = useCallback(async () => {
     const client = getClient()
@@ -454,6 +506,7 @@ export function TreeView() {
          hasChildren={true}
        >
          <VirtualObjectRows
+           ref={virtualRowsRef}
            roots={filteredAllObjects}
            scrollRef={scrollRef}
            contentRef={contentRef}
