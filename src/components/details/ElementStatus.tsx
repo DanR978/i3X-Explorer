@@ -105,10 +105,14 @@ export function StatusFacets({ code, variant = 'labeled', className = '' }: Stat
         <span className="font-medium">{qualityLabel}</span>
       </span>
 
+      {/* The whole data facet stays muted so it reads as a secondary qualifier:
+          quality is the colour-coded primary signal, data-presence just says
+          whether there's a value behind it. The value inherits the muted tone of
+          its dot and label rather than overriding to near-black. */}
       <span className="inline-flex items-center gap-1.5 text-xs text-i3x-text-muted" aria-hidden="true">
         {showLabels && <span>Data</span>}
         <Dot hollow={!hasData} />
-        <span className="font-medium text-i3x-text">{dataLabel}</span>
+        <span className="font-medium">{dataLabel}</span>
       </span>
     </span>
   )
