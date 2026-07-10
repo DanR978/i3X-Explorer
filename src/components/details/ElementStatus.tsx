@@ -48,6 +48,17 @@ const QUALITY_COLOR: Record<QualityFacet, string> = {
   unknown: 'text-i3x-secondary',
 }
 
+// Tinted badge form used by the labeled variant — a quiet pill rather than a
+// leading dot, so the Current Value status reads as a badge, not a bullet list.
+const QUALITY_PILL: Record<QualityFacet, string> = {
+  good: 'bg-i3x-success/15 text-i3x-success',
+  uncertain: 'bg-i3x-warning/15 text-i3x-warning',
+  bad: 'bg-i3x-error/15 text-i3x-error',
+  unknown: 'bg-i3x-secondary/15 text-i3x-secondary',
+}
+
+const PILL = 'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium'
+
 /** Solid = present, hollow ring = absent. Colour is inherited from the wrapper. */
 function Dot({ hollow = false }: { hollow?: boolean }) {
   return (
@@ -63,7 +74,7 @@ function Dot({ hollow = false }: { hollow?: boolean }) {
 interface StatusFacetsProps {
   code?: string | null
   /**
-   * 'labeled'  — "Quality ● Good   Data ◌ No data" (Current Value card)
+   * 'labeled'  — two pill badges: "[Good] [Value present]" (Current Value card)
    * 'compact'  — dots + values, no field labels (Subscriptions table)
    * 'dot'      — the two dots alone, full code in the tooltip (dense value rows)
    */
@@ -90,29 +101,39 @@ export function StatusFacets({ code, variant = 'labeled', className = '' }: Stat
     )
   }
 
-  const showLabels = variant === 'labeled'
-
-  return (
-    <span
-      className={`inline-flex items-center ${showLabels ? 'gap-3.5' : 'gap-2.5'} ${className}`}
-      title={code || 'Unknown'}
-    >
-      <span className="sr-only">{summary}</span>
-
-      <span className={`inline-flex items-center gap-1.5 text-xs ${QUALITY_COLOR[quality]}`} aria-hidden="true">
-        {showLabels && <span className="text-i3x-text-muted">Quality</span>}
-        <Dot />
-        <span className="font-medium">{qualityLabel}</span>
+  // Compact (Subscriptions table): dot + value, no field labels. Unchanged.
+  if (variant === 'compact') {
+    return (
+      <span className={`inline-flex items-center gap-2.5 ${className}`} title={code || 'Unknown'}>
+        <span className="sr-only">{summary}</span>
+        <span className={`inline-flex items-center gap-1.5 text-xs ${QUALITY_COLOR[quality]}`} aria-hidden="true">
+          <Dot />
+          <span className="font-medium">{qualityLabel}</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-xs text-i3x-text-muted" aria-hidden="true">
+          <Dot hollow={!hasData} />
+          <span className="font-medium">{dataLabel}</span>
+        </span>
       </span>
+    )
+  }
 
-      {/* The whole data facet stays muted so it reads as a secondary qualifier:
-          quality is the colour-coded primary signal, data-presence just says
-          whether there's a value behind it. The value inherits the muted tone of
-          its dot and label rather than overriding to near-black. */}
-      <span className="inline-flex items-center gap-1.5 text-xs text-i3x-text-muted" aria-hidden="true">
-        {showLabels && <span>Data</span>}
-        <Dot hollow={!hasData} />
-        <span className="font-medium">{dataLabel}</span>
+  // Labeled (Current Value): two pill badges. Quality is a tinted pill (colour =
+  // quality); data-presence is a neutral pill, filled when a value is present and
+  // outlined when it isn't — carrying the solid/hollow distinction without a dot.
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`} title={code || 'Unknown'}>
+      <span className="sr-only">{summary}</span>
+      <span className={`${PILL} ${QUALITY_PILL[quality]}`} aria-hidden="true">
+        {qualityLabel}
+      </span>
+      <span
+        aria-hidden="true"
+        className={`${PILL} text-i3x-text-muted ${
+          hasData ? 'bg-i3x-bg' : 'border border-i3x-border'
+        }`}
+      >
+        {dataLabel}
       </span>
     </span>
   )
