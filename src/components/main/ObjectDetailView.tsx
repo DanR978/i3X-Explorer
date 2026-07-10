@@ -41,7 +41,6 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
   const childCount = useExplorerStore(
     state => state.childrenByParent.get(object.elementId)?.length ?? 0
   )
-  const schema = useExplorerStore(state => state.typeIndex.get(object.typeId)?.schema)
 
   const loadValue = useCallback(async () => {
     const client = getClient()
@@ -120,18 +119,6 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
     }
   }
 
-  // Client-side only: the schema is already in the store from GET /objecttypes.
-  const handleExportSchema = () => {
-    if (!schema) return
-    const blob = new Blob([JSON.stringify(schema, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${object.typeId}.schema.json`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
-
   const tabCounts: Partial<Record<TabId, number>> = {
     relationships: childCount,
   }
@@ -156,16 +143,6 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
           </div>
 
           <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={handleExportSchema}
-              disabled={!schema}
-              title={schema ? 'Download this object type’s JSON schema' : 'No schema loaded for this type'}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs text-i3x-text bg-i3x-surface border border-i3x-border rounded-lg hover:bg-i3x-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
-            >
-              <span aria-hidden="true">⭳</span>
-              <span className="hidden sm:inline">Export schema</span>
-            </button>
             <button
               type="button"
               onClick={handleSubscribe}
