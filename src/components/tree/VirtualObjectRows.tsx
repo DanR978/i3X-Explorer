@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useExplorerStore } from '../../stores/explorer'
 import { getClient } from '../../api/client'
@@ -21,17 +21,22 @@ const TREE_WIDTH_SAFETY_PX = 32
 // linear array and windowed, so only rows in (or near) the viewport are mounted
 // instead of rendering the whole catalog at once.
 
-export function VirtualObjectRows({
-  roots,
-  scrollRef,
-  contentRef,
-  filterText,
-}: {
+export interface VirtualObjectRowsHandle {
+  /** Scroll a row into view by elementId. False when it isn't in the visible forest. */
+  revealElementId: (elementId: string) => boolean
+}
+
+export const VirtualObjectRows = forwardRef<VirtualObjectRowsHandle, {
   roots: ObjectInstance[]
   scrollRef: React.RefObject<HTMLDivElement>
   contentRef: React.RefObject<HTMLDivElement>
   filterText: string
-}) {
+}>(function VirtualObjectRows({
+  roots,
+  scrollRef,
+  contentRef,
+  filterText,
+}, ref) {
   const expandedNodes = useExplorerStore(s => s.expandedNodes)
   const childObjects = useExplorerStore(s => s.childObjects)
   const compositionCache = useExplorerStore(s => s.compositionCache)
@@ -48,6 +53,12 @@ export function VirtualObjectRows({
   const [scrollMargin, setScrollMargin] = useState(0)
   const [listMinWidth, setListMinWidth] = useState(0)
 
+  // Mirrors of the two measurements above. Reveal is driven imperatively from
+  // TreeView's effect, which runs after this component's layout effects but
+  // still sees the *previous* render's state — the refs hold the fresh values.
+  const scrollMarginRef = useRef(0)
+  const rowHeightRef = useRef(ESTIMATED_ROW_HEIGHT)
+
   // Offset of this list within the shared scroll container. It shifts whenever
   // content above it (the Namespaces folder) grows or collapses, so recompute on
   // any size change of the tree body. The +scrollTop term makes it independent
@@ -62,6 +73,7 @@ export function VirtualObjectRows({
         listEl.getBoundingClientRect().top -
         scrollEl.getBoundingClientRect().top +
         scrollEl.scrollTop
+      scrollMarginRef.current = margin
       setScrollMargin(prev => (Math.abs(prev - margin) > 0.5 ? margin : prev))
     }
     measure()
@@ -139,6 +151,28 @@ export function VirtualObjectRows({
     return () => clearTimeout(handle)
   }, [virtualItems, rows, compositionCache])
 
+  // Rows are windowed, so a row outside the viewport has no DOM node for
+  // TreeView to scroll to. Reach it by index instead: uniform row heights mean
+  // the virtualizer has a measurement for every index, mounted or not.
+  useImperativeHandle(ref, () => ({
+    revealElementId: (elementId: string) => {
+      const scrollEl = scrollRef.current
+      if (!scrollEl) return false
+      const index = rows.findIndex(r => r.kind === 'object' && r.obj.elementId === elementId)
+      // Not in the visible forest — an ancestor is collapsed, or the filter hides it.
+      if (index === -1) return false
+
+      const height = rowHeightRef.current
+      const rowTop = scrollMarginRef.current + index * height
+      const viewTop = scrollEl.scrollTop
+      if (rowTop >= viewTop && rowTop + height <= viewTop + scrollEl.clientHeight) return true
+      // Vertical-only: scrollToIndex writes scrollTop and never scrollLeft, so a
+      // horizontally-scrolled tree stays put.
+      virtualizer.scrollToIndex(index, { align: 'center' })
+      return true
+    },
+  }), [ref, rows, virtualizer, scrollRef])
+
   // Measure the true row height once from the first mounted object row so the
   // spacer math matches the DOM regardless of platform/theme (emoji glyph
   // heights differ across OSes).
@@ -148,6 +182,7 @@ export function VirtualObjectRows({
     const h = el.getBoundingClientRect().height
     if (h > 0) {
       measuredRef.current = true
+      rowHeightRef.current = h
       if (Math.abs(h - rowHeight) > 0.5) setRowHeight(h)
     }
   }, [rowHeight])
@@ -186,4 +221,4 @@ export function VirtualObjectRows({
       </div>
     </div>
   )
-}
+})
