@@ -53,7 +53,9 @@ export function Toolbar() {
     disconnect: disconnectStore
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar } = useExplorerStore()
+  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward } = useExplorerStore()
+  const canGoBack = useExplorerStore(s => s.historyIndex > 0)
+  const canGoForward = useExplorerStore(s => s.historyIndex < s.history.length - 1)
   const { clearAll: clearSubscriptions } = useSubscriptionsStore()
 
   useEffect(() => {
@@ -66,6 +68,23 @@ export function Toolbar() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isConnected])
+
+  // X1/X2, the side buttons on most mice. Electron only — in the web build they
+  // drive the browser's own history and taking them over would strand the SPA.
+  useEffect(() => {
+    if (!window.electronAPI) return
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault()
+        goBack()
+      } else if (e.button === 4) {
+        e.preventDefault()
+        goForward()
+      }
+    }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [goBack, goForward])
 
   const handleConnect = async () => {
     setConnecting(true)
@@ -169,6 +188,32 @@ export function Toolbar() {
           <line x1="9" y1="3" x2="9" y2="21" />
           {/* Fill the side rail when expanded so the icon reads as "panel shown" */}
           {!sidebarCollapsed && <rect x="3" y="3" width="6" height="18" fill="currentColor" stroke="none" />}
+        </svg>
+      </button>
+
+      <button
+        onClick={goBack}
+        disabled={!canGoBack}
+        title="Back"
+        aria-label="Back"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12" />
+          <polyline points="12 19 5 12 12 5" />
+        </svg>
+      </button>
+
+      <button
+        onClick={goForward}
+        disabled={!canGoForward}
+        title="Forward"
+        aria-label="Forward"
+        className="no-drag p-1.5 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-i3x-text-muted"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <polyline points="12 5 19 12 12 19" />
         </svg>
       </button>
 
