@@ -20,9 +20,9 @@
   "scripts": {
     "dev": "vite",
     "dev:web": "vite --config vite.web.config.ts",
-    "clean": "rm -rf dist dist-electron dist-web",
+    "clean": "node -e \"const fs=require('fs');['dist','dist-electron','dist-web'].forEach(d=>fs.rmSync(d,{recursive:true,force:true}))\"",
     "build": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json",
-    "build:vite": "vite build && cp electron/preload.cjs dist-electron/preload.cjs",
+    "build:vite": "vite build && node -e \"const fs=require('fs');fs.mkdirSync('dist-electron',{recursive:true});fs.copyFileSync('electron/preload.cjs','dist-electron/preload.cjs')\"",
     "build:mac": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac",
     "build:mac:arm64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --arm64",
     "build:mac:x64": "npm run clean && npm run build:vite && electron-builder --config electron-builder.json --mac --x64",
