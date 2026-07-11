@@ -23,7 +23,7 @@ i3x-explorer/
 │   ├── components/         # UI components
 │   │   ├── layout/         # Toolbar, Sidebar, MainPanel, StatusBar
 │   │   ├── main/           # Home shell, element detail, tabs, breadcrumb
-│   │   ├── graph/          # OverviewGraph (model map), RelationshipTree (cascade)
+│   │   ├── graph/          # Relationships tab: DirectRelationships (list), RelationshipGraph (depth-N map)
 │   │   ├── tree/           # TreeView for hierarchy browsing
 │   │   ├── details/        # Namespace/ObjectType detail, ValueDisplay, ElementStatus
 │   │   ├── connection/     # ConnectionDialog
@@ -166,7 +166,8 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - View object details, metadata, and current values
 - Current Value pane has a **Parsed / Raw** toggle — Raw shows the untouched HTTP response body; for composition objects the component rows middle-truncate the elementId and round numeric values, with full id/value/timestamp on hover
 - Copy-to-clipboard floating icon on every JSON pane (object data, schema, raw value, etc.)
-- Home shell shows a whole-model relationship map (compositional edges); hover a node for its links, click to open it. Per-element relationships render as a parent/element/children cascade in the Relationships tab
+- Home shell shows a **statistical model overview** built to be a launchpad, not a poster: largest containers and entry points (both clickable), objects by type (click to open the type), a hierarchy depth histogram, a parent-type → child-type containment matrix, and a warning strip that appears only when the catalog has problems. Not a whole-model graph: at catalog scale that is an unreadable hairball
+- Relationships tab shows **every direct relationship as a list** (hierarchy and non-hierarchy together) plus a **depth-configurable map** (1–5 hops, default 3) rooted on the element — rings are hops. Drag a row from the list onto the map to re-centre it there without navigating away
 - Bottom status bar: connection state + API version, server URL, object/namespace counts, subscription count (click to toggle the subscriptions drawer), and Developer tools
 - Subscribe to objects for real-time updates (polling or SSE); subscriptions auto-recover transparently on server-side expiry (HTTP 404/410)
 - Trend chart for numeric subscription values
@@ -448,7 +449,7 @@ location / {
 - Light theme is the default (`:root`); dark theme activates via `@media (prefers-color-scheme: dark)` or `[data-theme="dark"]` on `<html>`
 - The toolbar sun/moon button sets `document.documentElement.dataset.theme` and persists the choice to `localStorage`
 - Tailwind tokens use `rgb(var(--i3x-...) / <alpha-value>)` format so opacity modifiers (`/20`, `/50`) continue to work
-- SVG chart components (TrendView, HistoryTab, OverviewGraph, RelationshipTree) use `rgb(var(--i3x-...))` strings rather than raw hex
+- SVG chart components (TrendView, HistoryTab, RelationshipGraph, ModelOverview) use `rgb(var(--i3x-...))` strings rather than raw hex
 
 ### Trend View
 - Stores up to 60 data points per elementId
@@ -464,21 +465,53 @@ location / {
 - **Navigation** on result select: batch-expands `folder:hierarchical` + every `hier:{ancestorId}` up the `parentId` chain, then calls `selectItem` with the `hier:{elementId}` id. Falls back to expanding `folder:objects` and selecting `obj:{elementId}` for non-hierarchy objects
 - Ancestor expansion uses `useExplorerStore.setState({ expandedNodes })` in one write to avoid multiple re-renders
 
-### Overview Graph (`src/components/graph/OverviewGraph.tsx`)
-- The whole-model map on the Home shell. Nodes are every object in `allObjects`; **edges are compositional `parentId` links only**. The non-compositional edge types the mockup legend shows (Monitors / Controls / References) live behind `POST /objects/related`, and the panel resolves everything from the store — so they aren't drawn
-- Force-directed layout runs once in a `useMemo`: all-pairs repulsion, springs along edges, pull to centre, with cooling. Node init uses a **seeded** pseudo-random (`seededUnit`), not `Math.random`, so the layout doesn't jitter between renders
-- **`MAX_GRAPH_NODES` (300) is a hard cap.** The pair loop is O(n²) per iteration and every node becomes an SVG element; this app routinely browses catalogs of tens of thousands of objects, which would freeze the renderer. Above the cap the component renders a count and points at the tree
-- Pan/zoom keeps a `{scale, x, y}` transform on a wrapping `<g>`. Wheel zoom is bound with `addEventListener(..., { passive: false })` in an effect — React attaches `onWheel` passively at the root, so `preventDefault()` there is a no-op
-- Node colour comes from `colorForType()` (`graph/nodeColor.ts`): a stable hash of `typeId` into theme tokens, so instances of a type read as a group in both themes
+### Model Overview (`src/components/main/ModelOverview.tsx` + `modelStats.ts`)
+**There is deliberately no whole-model graph.** The Home shell used to draw one (force-directed SVG, then a GPU/cosmos.gl variant). At the scale this app browses — catalogs of tens of thousands of objects — a node-link map of everything is a hairball: it looks like structure but you cannot read one actionable fact off it. Both were removed, along with the `@cosmos.gl/graph` dependency. A graph earns its place only when it is *rooted* somewhere and *bounded* by depth, which is what the Relationships tab does.
 
-### Relationship Tree (`src/components/graph/RelationshipTree.tsx`)
-- The cascade in the Relationships tab: parent above, the element, children fanned below, joined by orthogonal SVG connectors
-- Connectors are **measured from the laid-out DOM** (`offsetLeft`/`offsetTop` relative to the positioned root), not computed, so they stay correct at any label width. A `ResizeObserver` re-measures on reflow; `setSize` bails out when unchanged so the observer doesn't churn
-- Measurement queries `[data-rt-node]` rather than holding refs on the node components — React 18 does not pass `ref` through to a function component as a prop
-- `MAX_CHILDREN` (24) caps the child row; a composition object can have thousands of children, and the cascade lays them out on one line. Overflow renders a count
+The overview is statistical instead, and derived **entirely from the store — no requests, no caps, no sampling** (100k objects computes in ~70ms).
+
+**Every row is a way IN.** At 100k objects the counts alone are wallpaper — "100,000 objects" tells you nothing you can act on. So the panel is built to be a launchpad, and nothing on it is a dead end:
+- **Largest containers** — the objects holding the most direct children. On a big model this is where the structure actually is; click one to open it. This, not the tree, is where you start
+- **Entry points** — the roots, clickable. A model with thousands of roots is *flat*, not hierarchical, which you want to know before hunting for a tree that isn't there
+- **Objects by type** — each bar opens that type (`selectType` in `navigation.ts`)
+- **Worth knowing** — a warning strip that renders *only when something is wrong* (orphans / untyped objects / declared types with no instances). A permanent "0 issues" panel trains people to ignore the space it occupies
+
+Implementation notes:
+- `modelStats.ts` is pure (`computeModelStats(objects, objectTypes, namespaceCount)`). `topBy()` does a **partial selection** for the top-8 lists — sorting a 100k array to read eight rows is O(n log n) for nothing
+- **A root is an object you cannot navigate UP from**: no `parentId`, *or* a `parentId` naming something outside the catalog (an orphan). Counting only the former would contradict the depth histogram, which has to place orphans at level 0 for want of anywhere else to put them — the card would read "1 root" above a Root bar of 2. Orphans are still tallied separately and surfaced under *Worth knowing*
+- `computeDepths` memoises each object's level and carries an in-progress set: some servers emit `parentId` cycles, which would otherwise spin forever
+- **Everything here is `parentId`-derived**, because those are the only edges knowable without a per-object round trip. That caveat lives behind an `InfoHint`, not in body copy
+- Charts follow the `dataviz` skill: **one hue for every bar** (a value-ramp on nominal categories would double-encode length as hue), a **sequential single-hue 5-step ramp** for the containment matrix with a scale legend, and no colour-only encoding — the hovered cell is read out in text above the grid and a **Table view** lists every link with its count
+
+### InfoHint (`src/components/main/InfoHint.tsx`)
+The "?" marker next to anything that isn't self-explanatory: hover for a one-line tooltip, click for a dismissible popup with the full explanation (Esc / outside-click to close).
+
+**Explanations do not go in body copy.** A paragraph under a chart is read once, by nobody, and it pushes the actual content down the page. Caveats, definitions and "how is this counted" go behind an `InfoHint` instead — used on Containment links, Entry points, Hierarchy shape, the containment matrix, and each issue in the *Worth knowing* strip.
+
+### Chevron (`src/components/common/Chevron.tsx`)
+The **one** disclosure marker in the app. There used to be three — `›`/`⌄` in the tree (two different glyphs at two different optical baselines, so the mark visibly *jumped* when a node opened), a `▶` in the Overview tab, and a third in the relationships list. A drawn chevron **rotates** rather than swaps, so open/closed is one shape in two positions.
+
+It is driven two ways, because the app toggles disclosures both ways:
+- `<Chevron open={isOpen} />` — React state (tree rows, relationship groups)
+- `<details className="group"><summary><Chevron /></summary>` — the browser, via `group-open:rotate-90` (Overview tab's Object Data)
+
+`group-open:rotate-90` is inert outside a `group`, so one component serves both without a variant flag. Note the `<summary>` must stay `display:flex` — that is what suppresses the browser's own native marker triangle.
+
+Breadcrumb and search-result path separators also use `›`, but those are separators, not disclosure markers, and are left alone.
+
+### Relationships Tab (list + depth-N map)
+The tab is two views of the same thing, answering different questions. The list answers *what is this connected to* — every **direct** relationship, hierarchy and non-hierarchy alike, in one place. The map answers *what is it connected to through those*, which is only a real question past the first hop — so it walks out to a **configurable depth** rather than stopping at the neighbours the list already spells out. (It replaced a fixed depth-1 cascade, which just redrew the list as boxes.)
+
+- **`egoGraph.ts`** — the data layer. `expandEgoGraph()` walks BFS from a root over `POST /objects/related` (no type filter, so *all* relationship kinds come back). One round trip per hop: the v1 client takes a whole frontier via `getRelatedObjectsBatch`; v0 has no batch form and falls back to a throttled fan-out (`V0_CONCURRENCY`)
+- `directNeighbors()` unions the server's related objects with the compositional parent/children **already in the store**, because servers differ in what `/objects/related` reports. The API entry wins on conflict — it carries the true `sourceRelationship`, where the store can only infer `HasParent`/`HasComponent` from `parentId`. Both the list and the walk go through it, so they can never disagree
+- **Edges are deduped by pair + relationship *family*** (`edgeKey`). `HasComponent(A→B)` and `ComponentOf(B→A)` are one physical edge seen from both ends; without the collapse, every hierarchy edge gets drawn twice in two different colours as soon as the walk reaches its far end. The survivor is the one discovered from the shallower node, so an edge always reads outward from the root and its bucket is the relationship as seen from the inner node
+- **Caps**: `MAX_EGO_NODES` (400 — every node is an SVG element) and `MAX_FANOUT` (60 per node — one composition object can own thousands of children). When the budget is hit the node **and its edge** are both dropped: an edge to a node that isn't in the graph renders as a line into empty space. Omissions are counted and surfaced under the map
+- **`radialLayout.ts`** — pure, deterministic, no simulation. Root at the centre, one ring per hop, so *distance from the centre IS the depth* (a force blob would put a 3-hop node anywhere). Angles come from a weighted sector allocation down the BFS tree — each node hands its children a slice of its own sector sized by subtree weight — so siblings stay together and tree edges never cross. Ring radius grows to give each node `MIN_ARC` of circumference, and a ring is only labelled when its nodes have `LABEL_ARC` each, so a crowded ring silently drops its labels instead of overlapping them. Non-tree edges are drawn as chords: those crossings are real information
+- **Depth lives in the explorer store** (`relationshipDepth`, 1–5, default 3), not in the tab — `MainPanel` re-keys the detail view per element, so tab-local state would snap back to the default on every selection
+- **Drag a row from the list onto the map** to re-centre the map on it *without navigating* — the detail view around it stays put. The drop payload is the `ELEMENT_DRAG_TYPE` MIME carrying an elementId, resolved against `objectIndex`; the ◎ button on each row does the same thing with the whole object in hand, and is the keyboard path. Clicking a map node navigates (as on the overview map)
 
 ### Main Content Panel (`MainPanel` → `HomeView` / `ObjectDetailView`)
-- Two top-level states, driven purely by `selectedItem`: nothing selected → `HomeView` (model counts + `OverviewGraph`); an object selected → `ObjectDetailView` (breadcrumb, title row, and the Overview · Relationships · History tabs). Namespace/object-type selections reuse `SimpleDetailView`, the same header frame without tabs
+- Two top-level states, driven purely by `selectedItem`: nothing selected → `HomeView` (the statistical `ModelOverview`); an object selected → `ObjectDetailView` (breadcrumb, title row, and the Overview · Relationships · History tabs). Namespace/object-type selections reuse `SimpleDetailView`, the same header frame without tabs
 - **Navigation contract** (`src/components/main/navigation.ts`): `selectElement(elementId)` resolves the object from `allObjects` (store-only — never fetches), expands the ancestor path in one `setState`, then calls `selectItem`; `showHome()` is `selectItem(null)`. The panel never imports the tree — both sides share `selectItem`, so selection stays in sync. The toolbar's brand and Home button also call `selectItem(null)`
 - **There is no Subscriptions tab.** Subscriptions are global state, not a property of the selected element, so they live in `SubscriptionsDrawer` above the status bar. Subscribing to an element opens the drawer
 - `MainPanel` re-keys `ObjectDetailView` on `elementId` so per-element view state (active tab, loaded value, history range) doesn't bleed across selections

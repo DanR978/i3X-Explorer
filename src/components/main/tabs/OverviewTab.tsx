@@ -1,4 +1,5 @@
 import type { ObjectInstance, LastKnownValue } from '../../../api/types'
+import { Chevron } from '../../common/Chevron'
 import { JsonViewer } from '../../details/JsonViewer'
 import { ValueDisplay } from '../../details/ValueDisplay'
 import { Card, Field, SegmentedControl } from '../primitives'
@@ -118,11 +119,11 @@ function ObjectDataDisclosure({ object }: { object: ObjectInstance }) {
 
   return (
     <details className="mt-4 border border-i3x-border rounded-lg group">
-      <summary className="px-3 py-2 flex items-center justify-between cursor-pointer text-xs font-medium text-i3x-text hover:bg-i3x-bg/50 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary">
+      {/* No `open` prop: inside `<details className="group">` the browser owns the
+          state and `group-open:rotate-90` turns the mark. */}
+      <summary className="px-3 py-2 flex items-center gap-2 cursor-pointer text-xs font-medium text-i3x-text hover:bg-i3x-bg/50 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary">
+        <Chevron />
         Object Data
-        <span aria-hidden="true" className="text-i3x-text-muted group-open:rotate-90 transition-transform motion-reduce:transition-none">
-          ▶
-        </span>
       </summary>
 
       <div className="border-t border-i3x-border p-3 space-y-3">

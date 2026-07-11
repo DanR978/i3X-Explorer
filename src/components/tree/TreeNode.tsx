@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useExplorerStore, type SelectedItem } from '../../stores/explorer'
 import { getClient } from '../../api/client'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
+import { Chevron } from '../common/Chevron'
 import {
   resolveCompositionFlags,
   refreshAllObjects,
@@ -44,8 +45,6 @@ function bucketInstance(
 }
 const NamespaceIcon = () => <span className="text-i3x-primary">🌐</span>
 const TypeIcon = () => <span className="text-i3x-success">📃</span>
-const ChevronRight = () => <span className="text-i3x-text-muted">›</span>
-const ChevronDown = () => <span className="text-i3x-text-muted">⌄</span>
 
 interface TreeNodeProps {
   id: string
@@ -207,8 +206,8 @@ export function TreeNode({ id, label, type, data, depth, hasChildren, count, chi
         onClick={handleClick}
       >
         {hasChildren && (
-          <span className="w-4 flex-shrink-0">
-            {isExpanded ? <ChevronDown /> : <ChevronRight />}
+          <span className="w-4 flex-shrink-0 flex items-center justify-center">
+            <Chevron open={isExpanded} />
           </span>
         )}
         {!hasChildren && <span className="w-4" />}

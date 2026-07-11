@@ -22,6 +22,14 @@ export interface SelectedItem {
 // Bounded so a long browsing session can't grow the stack without limit.
 const MAX_HISTORY = 50
 
+// Hops the Relationships map walks out from the selected element. One hop is just
+// the relationship list drawn as circles — the structure only shows up past it —
+// so the default starts beyond the first level. The ceiling is what keeps a walk
+// on a deeply-linked model from turning into a hairball (and N round trips).
+export const MIN_RELATIONSHIP_DEPTH = 1
+export const MAX_RELATIONSHIP_DEPTH = 5
+export const DEFAULT_RELATIONSHIP_DEPTH = 3
+
 // A node is only visible once every folder/ancestor above it is expanded, so
 // restoring a selection means restoring that path too. Mirrors the expansion
 // SearchModal and the main panel perform before they call selectItem.
@@ -93,6 +101,10 @@ interface ExplorerState {
   pollIntervalMs: number
   manualRefreshTick: number
   sidebarCollapsed: boolean
+  // How many hops the Relationships map walks out from the selected element.
+  // Lives here, not in the tab: MainPanel re-keys the detail view per element, so
+  // tab-local state would snap back to the default on every selection.
+  relationshipDepth: number
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -112,6 +124,7 @@ interface ExplorerState {
   setPollIntervalMs: (ms: number) => void
   triggerManualRefresh: () => void
   toggleSidebar: () => void
+  setRelationshipDepth: (depth: number) => void
   reset: () => void
 }
 
@@ -135,6 +148,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   pollIntervalMs: 30_000,
   manualRefreshTick: 0,
   sidebarCollapsed: false,
+  relationshipDepth: DEFAULT_RELATIONSHIP_DEPTH,
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({
@@ -254,6 +268,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   setPollIntervalMs: (ms) => set({ pollIntervalMs: ms }),
   triggerManualRefresh: () => set(state => ({ manualRefreshTick: state.manualRefreshTick + 1 })),
   toggleSidebar: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setRelationshipDepth: (depth) => set({
+    relationshipDepth: Math.max(MIN_RELATIONSHIP_DEPTH, Math.min(MAX_RELATIONSHIP_DEPTH, depth)),
+  }),
 
   reset: () => set({
     namespaces: [],

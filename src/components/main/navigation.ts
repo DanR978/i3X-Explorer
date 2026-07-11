@@ -20,6 +20,11 @@ export interface ElementNavigation {
    * list. Unlike selectElement this never no-ops for want of a store entry.
    */
   selectObject: (object: ObjectInstance) => void
+  /**
+   * Open an object type. The overview's type bars use this: "1,204 Sensors" is
+   * only useful if it's also the way to go look at them.
+   */
+  selectType: (typeId: string) => void
   showHome: () => void
 }
 
@@ -81,9 +86,23 @@ export function useElementNavigation(): ElementNavigation {
     selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target })
   }, [])
 
+  const selectType = useCallback((typeId: string) => {
+    const { objectTypes, expandedNodes, selectItem } = useExplorerStore.getState()
+    const target = objectTypes.find(type => type.elementId === typeId)
+    if (!target) return
+
+    // A type lives under its namespace in the tree, so open that path too.
+    const expanded = new Set(expandedNodes)
+    expanded.add('folder:namespaces')
+    expanded.add(`ns:${target.namespaceUri}`)
+
+    useExplorerStore.setState({ expandedNodes: expanded })
+    selectItem({ type: 'objectType', id: `type:${target.elementId}`, data: target })
+  }, [])
+
   const showHome = useCallback(() => {
     useExplorerStore.getState().selectItem(null)
   }, [])
 
-  return { selectElement, selectObject, showHome }
+  return { selectElement, selectObject, selectType, showHome }
 }
