@@ -34,6 +34,11 @@ export const DEFAULT_RELATIONSHIP_DEPTH = 1
 // selections for the session (the tab is re-mounted per element).
 export const INITIAL_RELATIONSHIP_DEPTH_PILLS = 2
 
+// Which way the Relationships map draws the same ego graph: a left-to-right tree
+// (default) or the radial rings map. Lives in the store so the choice persists
+// across element selections for the session.
+export type RelationshipView = 'tree' | 'radial'
+
 // A node is only visible once every folder/ancestor above it is expanded, so
 // restoring a selection means restoring that path too. Mirrors the expansion
 // SearchModal and the main panel perform before they call selectItem.
@@ -111,6 +116,8 @@ interface ExplorerState {
   relationshipDepth: number
   // Highest depth pill the picker currently shows (1..this). "+" bumps it.
   relationshipDepthShown: number
+  // Which view the Relationships map draws: 'tree' or 'radial'.
+  relationshipView: RelationshipView
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -132,6 +139,7 @@ interface ExplorerState {
   toggleSidebar: () => void
   setRelationshipDepth: (depth: number) => void
   revealRelationshipDepth: () => void
+  setRelationshipView: (view: RelationshipView) => void
   reset: () => void
 }
 
@@ -157,6 +165,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   sidebarCollapsed: false,
   relationshipDepth: DEFAULT_RELATIONSHIP_DEPTH,
   relationshipDepthShown: INITIAL_RELATIONSHIP_DEPTH_PILLS,
+  relationshipView: 'tree',
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({
@@ -282,6 +291,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   revealRelationshipDepth: () => set(state => ({
     relationshipDepthShown: Math.min(MAX_RELATIONSHIP_DEPTH, state.relationshipDepthShown + 1),
   })),
+  setRelationshipView: (view) => set({ relationshipView: view }),
 
   reset: () => set({
     namespaces: [],
