@@ -5,11 +5,11 @@
  * different optical baselines, so the mark visibly jumped when a node opened),
  * a `▶` in the Overview tab, and another in the relationships list. A drawn
  * chevron rotates rather than swaps, so open/closed is one shape in two
- * positions — and it sits on the text baseline the same way everywhere.
+ * positions, and it sits on the text baseline the same way everywhere.
  *
  * Two ways to drive it, because the app toggles disclosures both ways:
- *   <Chevron open={isOpen} />                      — React state
- *   <details className="group"><Chevron /></...>   — the browser, via group-open
+ *   <Chevron open={isOpen} />: React state
+ *   <details className="group"><Chevron /></...>: the browser, via group-open
  *
  * `group-open:rotate-90` is harmless outside a `group`/`<details>`, so both
  * mechanisms can live on the same component without a variant flag.
@@ -18,7 +18,7 @@ export function Chevron({
   open,
   className = '',
 }: {
-  /** Omit inside a `<details className="group">` — the CSS handles it. */
+  /** Omit inside a `<details className="group">`, the CSS handles it. */
   open?: boolean
   className?: string
 }) {

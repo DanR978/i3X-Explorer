@@ -148,7 +148,7 @@ export class I3XClient {
     return this.capabilities
   }
 
-  // True for v1-beta and v1 (Release) — any server that speaks the v1 wire format
+  // True for v1-beta and v1 (Release), any server that speaks the v1 wire format
   private isV1(): boolean {
     return this.apiVersion === 'v1' || this.apiVersion === 'v1-beta'
   }
@@ -252,7 +252,7 @@ export class I3XClient {
       // If the server redirected (e.g. http → https upgrade), adopt the final URL
       // for all subsequent requests. GETs survive a 301/302 redirect but browsers
       // convert POST to GET and drop the body, so every POST would fail otherwise.
-      // Only adopt when the final URL still ends in /info — a redirect to some
+      // Only adopt when the final URL still ends in /info, a redirect to some
       // unrelated page (login portal, captive portal) must not corrupt the base.
       if (response.redirected && response.url) {
         const match = response.url.match(/^(.+?)\/info\/?$/)
@@ -283,7 +283,7 @@ export class I3XClient {
         const isRelease = !isNaN(specMajor) && specMajor >= 1.0 && !serverVersion.includes('beta')
         this.apiVersion = isRelease ? 'v1' : 'v1-beta'
       } catch {
-        // /info responded OK but body isn't useful — treat as Beta
+        // /info responded OK but body isn't useful, treat as Beta
         this.apiVersion = 'v1-beta'
       }
     } catch (err) {
@@ -328,7 +328,7 @@ export class I3XClient {
       return raw.map(normalizeV1Object)
     }
     const all = raw as unknown as ObjectInstance[]
-    // v0: simulate root filtering locally — root objects have parentId === '/'
+    // v0: simulate root filtering locally, root objects have parentId === '/'
     if (root) return all.filter(obj => obj.parentId === '/')
     return all
   }
@@ -368,7 +368,7 @@ export class I3XClient {
         if (item.success && Array.isArray(item.result)) {
           for (const envelope of item.result) {
             // Each entry is { sourceRelationship, object: {...} } (spec commit 51593eb).
-            // sourceRelationship is on the envelope, not the inner object — inject it so
+            // sourceRelationship is on the envelope, not the inner object, inject it so
             // normalizeV1Object can map it onto ObjectInstance.sourceRelationship.
             const inner = (envelope.object ?? envelope) as Record<string, unknown>
             const raw = envelope.object
@@ -388,7 +388,7 @@ export class I3XClient {
     })
   }
 
-  // Batch /objects/related — used to authoritatively determine which parents
+  // Batch /objects/related, used to authoritatively determine which parents
   // have qualifying compositional children (for tree chevrons), in one round
   // trip instead of one call per parent. Returns Map<parentElementId, children[]>.
   // v1 only.
@@ -567,7 +567,7 @@ export class I3XClient {
   }
 
   async deleteSubscription(subscriptionId: string): Promise<void> {
-    // Purge local state even if the server request fails — callers delete
+    // Purge local state even if the server request fails, callers delete
     // subscriptions that may already be expired server-side (404), and the
     // clientId/sequence entries must not outlive the subscription locally.
     try {
@@ -621,7 +621,7 @@ export class I3XClient {
       })
       raw = data
       if (status === 206) {
-        console.warn(`[i3x] sync 206: subscription ${subscriptionId} queue overflowed — some updates were dropped`)
+        console.warn(`[i3x] sync 206: subscription ${subscriptionId} queue overflowed, some updates were dropped`)
       }
     } else {
       raw = await this.request<Array<Record<string, unknown>>>('POST', `/subscriptions/${subscriptionId}/sync`)
@@ -694,7 +694,7 @@ export class I3XClient {
     }
   }
 
-  // Connection test — also detects API version (v0 vs v1)
+  // Connection test, also detects API version (v0 vs v1)
   async testConnection(): Promise<boolean> {
     try {
       await this.detectVersion()

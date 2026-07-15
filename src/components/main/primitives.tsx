@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-/** Card — the panel surface every detail section sits on. */
+/** Card, the panel surface every detail section sits on. */
 export function Card({
   title,
   actions,
@@ -28,7 +28,7 @@ export function Card({
   )
 }
 
-/** Labelled, monospaced, single-line value box. Full text lives in the tooltip. */
+/** Labeled, monospaced, single-line value box. Full text lives in the tooltip. */
 export function Field({ label, value }: { label: string; value: string | null | undefined }) {
   const isEmpty = value == null || value === ''
   const shown = isEmpty ? '—' : value
@@ -58,7 +58,7 @@ export function SegmentedControl<T extends string>({
   value: T
   options: { value: T; label: string }[]
   onChange: (value: T) => void
-  /** Accessible group name — not rendered. */
+  /** Accessible group name, not rendered. */
   label: string
 }) {
   return (

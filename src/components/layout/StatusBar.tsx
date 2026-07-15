@@ -7,7 +7,7 @@ import { getClient } from '../../api/client'
  * The bottom status strip. Everything here used to be crammed into the toolbar's
  * right edge; the mockup gives it a home of its own.
  *
- * The mockup also shows a server timestamp — we have no such value without a
+ * The mockup also shows a server timestamp, we have no such value without a
  * request, so it's omitted rather than faked.
  */
 export function StatusBar() {

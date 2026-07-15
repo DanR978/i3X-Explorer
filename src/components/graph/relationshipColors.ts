@@ -1,15 +1,15 @@
 /**
- * The relationship colour language, carried over from the original
+ * The relationship color language, carried over from the original
  * RelationshipGraph so the map, the cascade and the legend all read the same.
  *
- * Colour encodes the RELATIONSHIP, not the node: amber for the edge up to a
- * parent, green for edges down to children, blue for inheritance, grey for
+ * Color encodes the RELATIONSHIP, not the node: amber for the edge up to a
+ * parent, green for edges down to children, blue for inheritance, gray for
  * anything else. Dashes separate the structural edges (solid) from the
  * referential ones (dashed).
  *
  * Values are `rgb(var(--i3x-...))` so both themes work; SVG and canvas both
  * accept them (canvas resolves the custom property against the element it is
- * drawn on, so the strings are resolved to literals via getComputedStyle first —
+ * drawn on, so the strings are resolved to literals via getComputedStyle first,
  * see resolveThemeColors).
  */
 
@@ -63,7 +63,7 @@ export function nodeFill(isComposition: boolean): string {
 }
 
 /**
- * Canvas cannot resolve `rgb(var(--x))`; it needs literal colours. Resolve the
+ * Canvas cannot resolve `rgb(var(--x))`; it needs literal colors. Resolve the
  * theme's custom properties against a live element, so a theme switch just
  * re-resolves rather than hard-coding hex anywhere.
  */

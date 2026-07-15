@@ -7,7 +7,7 @@ import { BUCKET_COLOR, bucketOf, type RelationshipBucket } from './relationshipC
 import { directNeighbors, type Neighbor } from './egoGraph'
 import { ELEMENT_DRAG_TYPE } from './RelationshipGraph'
 
-/** Rows revealed per "show more" click — a composition parent can have thousands of children. */
+/** Rows revealed per "show more" click. A composition parent can have thousands of children. */
 const PAGE_SIZE = 50
 
 export interface RelationshipGroup {
@@ -36,24 +36,26 @@ export function groupByRelationship(neighbors: Neighbor[]): RelationshipGroup[] 
 }
 
 /**
- * The flat list of every direct relationship — the hierarchy (parent, children)
- * and everything else (Monitors, InheritsFrom, …) in one place. Previously the
- * hierarchy was only drawable as a cascade and the rest were chips, so no single
- * view answered "what is this connected to?".
+ * The flat list of every direct relationship: the hierarchy (parent, children)
+ * and everything else (Monitors, InheritsFrom, and so on) in one place, so a
+ * single view answers "what is this connected to?".
  *
- * Rows are draggable onto the relationship map, which re-centres it on the
- * dropped element. The ◎ button does the same thing for keyboard and for anyone
- * who doesn't discover the drag.
+ * Rows are draggable onto the relationship map, which re-centers it on the
+ * dropped element. The ◎ button does the same thing for keyboard users and for
+ * anyone who doesn't discover the drag.
  */
 export function DirectRelationships({
   element,
   onSelect,
   onFocus,
+  onHover,
 }: {
   element: ObjectInstance
   onSelect: (object: ObjectInstance) => void
-  /** Centre the relationship map on this object, without navigating to it. */
+  /** Center the relationship map on this object, without navigating to it. */
   onFocus: (object: ObjectInstance) => void
+  /** Row hovered or left. The map highlights that element as if hovered there. */
+  onHover?: (elementId: string | null) => void
 }) {
   const [related, setRelated] = useState<ObjectInstance[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -110,14 +112,20 @@ export function DirectRelationships({
     <div className="flex flex-col h-full min-h-0">
       <p className="mb-2 shrink-0 text-[11px] text-i3x-text-muted">
         {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag a row
-        onto the map to centre it there
+        onto the map to center it there
       </p>
 
       {/* Fills the pane and scrolls in place, so a hub with thousands of children
           doesn't stretch the card. pr/-mr keeps the scrollbar off the rows. */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1">
         {groups.map(group => (
-          <Group key={group.type} group={group} onSelect={onSelect} onFocus={onFocus} />
+          <Group
+            key={group.type}
+            group={group}
+            onSelect={onSelect}
+            onFocus={onFocus}
+            onHover={onHover}
+          />
         ))}
       </div>
     </div>
@@ -128,10 +136,12 @@ function Group({
   group,
   onSelect,
   onFocus,
+  onHover,
 }: {
   group: RelationshipGroup
   onSelect: (object: ObjectInstance) => void
   onFocus: (object: ObjectInstance) => void
+  onHover?: (elementId: string | null) => void
 }) {
   const [isOpen, setIsOpen] = useState(true)
   const [visible, setVisible] = useState(PAGE_SIZE)
@@ -149,7 +159,7 @@ function Group({
         className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-i3x-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         <Chevron open={isOpen} />
-        {/* The bucket colour, so a row's kind reads the same here as on the map's edges. */}
+        {/* The bucket color, so a row's kind reads the same here as on the map's edges. */}
         <span
           aria-hidden="true"
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -163,13 +173,19 @@ function Group({
 
       {isOpen && (
         // The accent rail ties every row back to the relationship it belongs to,
-        // so the colour doesn't have to be repeated on each one.
+        // so the color doesn't have to be repeated on each one.
         <ul
           className="ml-[9px] pl-2.5 border-l"
           style={{ borderColor: `color-mix(in srgb, ${accent} 45%, transparent)` }}
         >
           {shown.map(item => (
-            <Row key={item.object.elementId} object={item.object} onSelect={onSelect} onFocus={onFocus} />
+            <Row
+              key={item.object.elementId}
+              object={item.object}
+              onSelect={onSelect}
+              onFocus={onFocus}
+              onHover={onHover}
+            />
           ))}
 
           {remaining > 0 && (
@@ -193,10 +209,12 @@ function Row({
   object,
   onSelect,
   onFocus,
+  onHover,
 }: {
   object: ObjectInstance
   onSelect: (object: ObjectInstance) => void
   onFocus: (object: ObjectInstance) => void
+  onHover?: (elementId: string | null) => void
 }) {
   return (
     <li
@@ -207,12 +225,14 @@ function Row({
         event.dataTransfer.setData('text/plain', object.elementId)
         event.dataTransfer.effectAllowed = 'copy'
       }}
+      onMouseEnter={() => onHover?.(object.elementId)}
+      onMouseLeave={() => onHover?.(null)}
       className="group flex items-center gap-1 rounded-lg hover:bg-i3x-bg"
     >
       <span
         aria-hidden="true"
         className="pl-1.5 text-[11px] leading-none text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
-        title="Drag onto the map to centre it here"
+        title="Drag onto the map to center it here"
       >
         ⠿
       </span>
@@ -232,8 +252,8 @@ function Row({
       <button
         type="button"
         onClick={() => onFocus(object)}
-        aria-label={`Centre the map on ${object.displayName}`}
-        title="Centre the map here"
+        aria-label={`Center the map on ${object.displayName}`}
+        title="Center the map here"
         className="mr-1 w-6 h-6 grid place-items-center rounded-md text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-i3x-surface hover:text-i3x-primary transition-opacity motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         ◎

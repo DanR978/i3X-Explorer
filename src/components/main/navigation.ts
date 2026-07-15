@@ -5,17 +5,17 @@ import type { ObjectInstance } from '../../api/types'
 /**
  * Navigation contract for the main content panel.
  *
- * The panel never imports or reaches into the tree — both drive the same
+ * The panel never imports or reaches into the tree, both drive the same
  * `selectItem` / `selectedItem` state in the explorer store, so the tree can
  * highlight whatever the panel (or, later, the graphs) selected, and vice versa.
  *
- *   selectElement(elementId) — open an object in the detail view
- *   showHome()               — clear the selection, landing on the Home shell
+ *   selectElement(elementId): open an object in the detail view
+ *   showHome(): clear the selection, landing on the Home shell
  */
 export interface ElementNavigation {
   selectElement: (elementId: string) => void
   /**
-   * Navigate to an object we already hold in full — e.g. a related object just
+   * Navigate to an object we already hold in full, e.g. a related object just
    * fetched from POST /objects/related, which may not be in the store's flat
    * list. Unlike selectElement this never no-ops for want of a store entry.
    */
@@ -39,7 +39,7 @@ export function buildAncestorChain(
 
   while (current.parentId && current.parentId !== '/' && !visited.has(current.parentId)) {
     // O(1) index lookup: a per-ancestor allObjects.find made each walk
-    // O(depth × n) — ~1M comparisons on a 50k catalog.
+    // O(depth × n), ~1M comparisons on a 50k catalog.
     const parent = objectIndex.get(current.parentId)
     if (!parent) break
     visited.add(parent.elementId)

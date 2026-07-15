@@ -5,29 +5,35 @@ import { useExplorerStore } from '../../stores/explorer'
 import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
 import { expandEgoGraph, type EgoGraph } from './egoGraph'
-import { layoutRadial, type PositionedNode } from './radialLayout'
+import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
 
 /** The MIME a dragged relationship row carries. Also the handle the graph drop target looks for. */
 export const ELEMENT_DRAG_TYPE = 'application/x-i3x-element-id'
 
 const MIN_SCALE = 0.35
-const MAX_SCALE = 4
+const MAX_SCALE = 20
 
 export interface RelationshipGraphProps {
-  /** The element at the centre — the selected object, or whatever was dropped in. */
+  /** The element at the center: the selected object, or whatever was dropped in. */
   root: ObjectInstance
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
   onFocusElement: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
+  /**
+   * An element hovered outside the map, such as a row in the relationships list.
+   * The map highlights it as if it were hovered here. A real hover on the map
+   * takes priority.
+   */
+  externalHoverId?: string | null
 }
 
 /**
  * The depth-N relationship map for one element.
  *
- * Rings are hops: the root at the centre, its direct relationships on ring 1,
- * theirs on ring 2, and so on. Edge colour is the relationship bucket, read from
+ * Rings are hops: the root at the center, its direct relationships on ring 1,
+ * theirs on ring 2, and so on. Edge color is the relationship bucket, read from
  * the inner node outward, matching the legend below the card.
  */
 export function RelationshipGraph({
@@ -35,6 +41,7 @@ export function RelationshipGraph({
   depth,
   onFocusElement,
   onSelectElement,
+  externalHoverId,
 }: RelationshipGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -50,7 +57,7 @@ export function RelationshipGraph({
   const [isDropTarget, setIsDropTarget] = useState(false)
 
   // The walk reads the store, but a change to allObjects (the 30s poll) must not
-  // re-trigger it — only the root and the depth do. Refs keep the effect's deps honest.
+  // re-trigger it. Only the root and the depth do. Refs keep the effect's deps honest.
   const storeRef = useRef({ objectIndex, childrenByParent })
   storeRef.current = { objectIndex, childrenByParent }
 
@@ -203,10 +210,16 @@ export function RelationshipGraph({
     if (elementId) onFocusElement(elementId)
   }
 
-  const hovered = hoverId ? nodeById.get(hoverId) : null
-  const hoveredNeighbors = hoverId ? neighbors.get(hoverId) : undefined
+  // A row hovered in the list highlights here just like a map hover, but an actual
+  // hover on the map wins. An external id that isn't drawn is ignored, so it can't
+  // dim the whole map with nothing lit.
+  const activeHoverId =
+    hoverId ?? (externalHoverId && nodeById.has(externalHoverId) ? externalHoverId : null)
+
+  const hovered = activeHoverId ? nodeById.get(activeHoverId) : null
+  const hoveredNeighbors = activeHoverId ? neighbors.get(activeHoverId) : undefined
   const dimmed = (id: string) =>
-    hoverId !== null && id !== hoverId && !hoveredNeighbors?.has(id)
+    activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
 
   const extent = layout?.extent ?? 200
 
@@ -240,6 +253,8 @@ export function RelationshipGraph({
             <svg
               ref={svgRef}
               viewBox={`${-extent} ${-extent} ${extent * 2} ${extent * 2}`}
+              // Fit the whole graph in view, centered, so everything is always
+              // visible. A wide pane gets side margins rather than cropping nodes.
               preserveAspectRatio="xMidYMid meet"
               className={`w-full h-full select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} ${
                 isLoading ? 'opacity-50' : ''
@@ -297,6 +312,7 @@ export function RelationshipGraph({
                     key={node.object.elementId}
                     node={node}
                     dimmed={dimmed(node.object.elementId)}
+                    emphasized={activeHoverId === node.object.elementId}
                     onHover={setHoverId}
                     onSelect={onSelectElement}
                   />
@@ -331,7 +347,7 @@ export function RelationshipGraph({
             </div>
             <div className="mt-1 text-i3x-text-muted">
               {hovered.depth === 0
-                ? 'centre'
+                ? 'center'
                 : `${hovered.depth} ${hovered.depth === 1 ? 'hop' : 'hops'} out`}{' '}
               · {hovered.degree} {hovered.degree === 1 ? 'link' : 'links'} · click to open
             </div>
@@ -341,7 +357,7 @@ export function RelationshipGraph({
         {isDropTarget && (
           <div className="absolute inset-0 grid place-items-center bg-i3x-primary/5 pointer-events-none">
             <span className="bg-i3x-surface border border-i3x-primary rounded-lg px-3 py-2 text-xs text-i3x-text">
-              Drop to centre the map here
+              Drop to center the map here
             </span>
           </div>
         )}
@@ -355,25 +371,28 @@ export function RelationshipGraph({
 }
 
 /**
- * Nodes are neutral so the edge colours carry the relationship, exactly as the
- * legend promises. Composition objects are hollow with a dashed border; the root
- * is filled in the primary colour.
+ * Nodes are neutral so the edge colors carry the relationship, matching the
+ * legend. Composition objects are hollow with a dashed border; the root is
+ * filled in the primary color.
  */
 function GraphNode({
   node,
   dimmed,
+  emphasized,
   onHover,
   onSelect,
 }: {
   node: PositionedNode
   dimmed: boolean
+  /** The active-hover node (map hover or a hovered list row). Gets a focus ring. */
+  emphasized: boolean
   onHover: (id: string | null) => void
   onSelect: (id: string) => void
 }) {
   const isRoot = node.depth === 0
   const isComposition = node.object.isComposition === true
   // Push the label out along the node's own bearing, and flip its anchor across
-  // the vertical axis so it always reads away from the centre.
+  // the vertical axis so it always reads away from the center.
   const outward = isRoot ? 0 : node.radius + 6
   const labelX = node.x + Math.cos(node.angle) * outward
   const labelY = isRoot ? node.y - node.radius - 7 : node.y + Math.sin(node.angle) * outward
@@ -388,6 +407,18 @@ function GraphNode({
       onMouseLeave={() => onHover(null)}
       onClick={() => onSelect(node.object.elementId)}
     >
+      {/* Focus ring, behind the node so the node sits on top. Makes the active
+          element easy to find when the list, not the cursor, is driving the hover. */}
+      {emphasized && (
+        <circle
+          cx={node.x}
+          cy={node.y}
+          r={node.radius + 5}
+          fill="none"
+          stroke="rgb(var(--i3x-primary))"
+          strokeWidth={2}
+        />
+      )}
       <circle
         cx={node.x}
         cy={node.y}
@@ -406,7 +437,13 @@ function GraphNode({
           textAnchor={anchor}
           dominantBaseline="middle"
           fontSize={11}
-          className={isRoot ? 'fill-i3x-text font-medium' : 'fill-i3x-text'}
+          className={
+            isRoot
+              ? 'fill-i3x-text font-medium'
+              : emphasized
+                ? 'fill-i3x-primary font-medium'
+                : 'fill-i3x-text'
+          }
           style={{
             paintOrder: 'stroke',
             stroke: 'rgb(var(--i3x-bg))',
@@ -447,7 +484,7 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <div className="h-full grid place-items-center text-center px-6">{children}</div>
 }
 
-/** Every node is labelled; a very long name is clipped here and the hover card carries the full one. */
-function truncateLabel(name: string, max = 24): string {
+/** Every node is labeled; a very long name is clipped here and the hover card carries the full one. */
+function truncateLabel(name: string, max = MAX_LABEL_CHARS): string {
   return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }

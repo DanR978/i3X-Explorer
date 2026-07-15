@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Breadcrumb } from './Breadcrumb'
 
 /**
- * Header shell for selections that have no ancestry and no tabs — namespaces and
+ * Header shell for selections that have no ancestry and no tabs, namespaces and
  * object types. Keeps them inside the same navigation frame as element detail so
  * "⌂ Overview" is always reachable.
  */

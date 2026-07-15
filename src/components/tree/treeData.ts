@@ -14,7 +14,7 @@ export const MAX_TREE_DEPTH = 20
 export const ESTIMATED_ROW_HEIGHT = 28
 
 // Resolve chevron state for a set of compositional parents by asking the server
-// what /objects/related actually returns — i.e. the same data the render filter
+// what /objects/related actually returns, i.e. the same data the render filter
 // sees at expansion time. Single batch round trip; only unresolved isComposition
 // objects are queried, so callers can pass a superset cheaply.
 export async function resolveCompositionFlags(client: I3XClient, loaded: ObjectInstance[]): Promise<void> {
@@ -51,7 +51,7 @@ export async function resolveCompositionFlags(client: I3XClient, loaded: ObjectI
 // background poll pass force=true, so freshness is still guaranteed.
 //
 // Composition chevrons are resolved lazily for the visible window (see
-// VirtualObjectRows), never for the whole catalog here — a single batch over
+// VirtualObjectRows), never for the whole catalog here, a single batch over
 // tens of thousands of objects is slow and can fail, leaving chevrons wrong.
 const ALL_OBJECTS_REFETCH_TTL_MS = 3000
 let allObjectsFetchedAt = 0

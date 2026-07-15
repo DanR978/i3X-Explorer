@@ -13,7 +13,7 @@ import type { SyncResponseItem } from '../../api/types'
  * It used to sit inside the subscriptions panel, which meant collapsing that
  * panel tore down the live stream; now that the subscriptions UI is a tab,
  * unmounting on every tab switch would do the same. The transport logic itself
- * is unchanged — only its mount point moved.
+ * is unchanged, only its mount point moved.
  *
  * Store reads go through `getState()` rather than hook selectors so a live value
  * arriving every second doesn't re-render the whole application tree.
@@ -117,7 +117,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
       store.removeMonitoredItem(oldSubscriptionId, elementId)
     })
     store.removeSubscription(oldSubscriptionId)
-    // Best-effort delete on the server — the subscription is likely already gone (404/410)
+    // Best-effort delete on the server, the subscription is likely already gone (404/410)
     // but this cleans up the clientId entry from the client-side map.
     try { await client.deleteSubscription(oldSubscriptionId) } catch { /* already gone */ }
 
@@ -181,7 +181,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
           if (isSubscriptionGoneError(error)) {
             handleRecovery(subscriptionId)
           } else if (isRelease && error instanceof HttpStatusError && error.status === 501) {
-            // 1.0: 501 = streaming permanently unsupported — fall back to polling
+            // 1.0: 501 = streaming permanently unsupported, fall back to polling
             console.warn('Server does not support SSE streaming (HTTP 501), falling back to polling')
             setUsePolling(true)
             usePollingRef.current = true

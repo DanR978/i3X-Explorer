@@ -4,18 +4,18 @@ import { bucketOf, type RelationshipBucket } from './relationshipColors'
 
 /**
  * The ego graph: everything reachable from one element within N relationship
- * hops. This is what makes the Relationships tab worth having — a single hop is
+ * hops. This is what makes the Relationships tab worth having. A single hop is
  * just the list rendered as circles; the structure only appears past the first
  * level.
  *
- * Edges come from POST /objects/related, which returns *all* relationship kinds
+ * Edges come from POST /objects/related, which returns all relationship kinds
  * (compositional and not). Walking it breadth-first gives depth N in N round
  * trips, because the v1 client can ask for a whole frontier in one call
  * (getRelatedObjectsBatch). v0 has no batch form and falls back to a throttled
  * fan-out.
  */
 
-/** How some object is related to a neighbour of it. */
+/** How some object is related to a neighbor of it. */
 export interface Neighbor {
   object: ObjectInstance
   /** The server's relationship type, e.g. HasComponent / Monitors. */
@@ -26,7 +26,7 @@ export interface EgoNode {
   object: ObjectInstance
   /** Hops from the root; 0 is the root itself. */
   depth: number
-  /** The node this one was first reached from — the BFS tree edge. Root: undefined. */
+  /** The node this one was first reached from (the BFS tree edge). Root: undefined. */
   via?: string
 }
 
@@ -68,7 +68,7 @@ const BUCKET_ORDER: Record<RelationshipBucket, number> = {
  * Every direct relationship of `object`: what the server returned, unioned with
  * the compositional parent and children the store already knows.
  *
- * The union matters because servers differ in what /objects/related reports —
+ * The union matters because servers differ in what /objects/related reports:
  * some omit the hierarchy, some omit everything else. The API entry wins on
  * conflict: it carries the true sourceRelationship, where the store can only
  * infer HasParent/HasComponent from parentId.
@@ -117,9 +117,9 @@ export function sortNeighbors(neighbors: Neighbor[]): Neighbor[] {
  * One line per pair per relationship family.
  *
  * HasComponent(A→B) and ComponentOf(B→A) are one physical edge seen from both
- * ends, so both land on the same `hier` key and only the first — discovered from
- * the shallower node — survives. Without this, every hierarchy edge would be
- * drawn twice, in two different colours, as soon as the walk reached its far end.
+ * ends, so both land on the same `hier` key and only the first survives (the one
+ * discovered from the shallower node). Without this, every hierarchy edge would
+ * be drawn twice, in two different colors, once the walk reached its far end.
  */
 export function edgeKey(a: string, b: string, bucket: RelationshipBucket): string {
   const family = bucket === 'parent' || bucket === 'child' ? 'hier' : bucket
@@ -127,7 +127,7 @@ export function edgeKey(a: string, b: string, bucket: RelationshipBucket): strin
   return `${lo}\u0000${hi}\u0000${family}`
 }
 
-/** Neighbours for a whole BFS frontier: one round trip on v1, a throttled fan-out on v0. */
+/** Neighbors for a whole BFS frontier: one round trip on v1, a throttled fan-out on v0. */
 async function fetchFrontier(
   client: I3XClient,
   ids: string[]

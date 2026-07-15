@@ -53,7 +53,7 @@ export interface ObjectInstance extends ObjectInstanceMinimal {
 }
 
 // Server capabilities matrix from GET /info (1.0 Release spec).
-// All fields optional defensively — only consumed when a true v1 server is detected.
+// All fields optional defensively, only consumed when a true v1 server is detected.
 export interface ServerCapabilities {
   query?: { history?: boolean }
   update?: { current?: boolean; history?: boolean }

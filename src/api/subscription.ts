@@ -109,7 +109,7 @@ export class SSESubscription {
 
       if (!response.ok) {
         const err = new HttpStatusError(response.status, response.statusText)
-        // 404/410 means the subscription is gone — retrying will always fail.
+        // 404/410 means the subscription is gone, retrying will always fail.
         // failFastStatuses (e.g. 501 = streaming unsupported) are equally permanent.
         if (response.status === 404 || response.status === 410 || this.failFastStatuses.includes(response.status)) {
           this.onError(err)

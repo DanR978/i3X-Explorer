@@ -2,11 +2,11 @@ import { useExplorerStore } from '../../stores/explorer'
 import { ModelOverview } from './ModelOverview'
 
 /**
- * View A — the landing state, shown whenever nothing is selected.
+ * View A, the landing state, shown whenever nothing is selected.
  *
  * It used to be a force-directed map of the whole model. At the scale this app
  * browses, that is a hairball: it looks like structure but you can't read a
- * single fact off it. The overview is now statistical — how much of each type
+ * single fact off it. The overview is now statistical, how much of each type
  * there is, how deep the hierarchy runs, and which types contain which. Drilling
  * into one element's actual relationships is the Relationships tab's job, where
  * a graph can be rooted somewhere and bounded by depth.
