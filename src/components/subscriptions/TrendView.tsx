@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 
-// Colors — reference CSS variables so they respond to the active theme
+// Colors, reference CSS variables so they respond to the active theme
 const COLORS = {
   bg:        'rgb(var(--i3x-bg))',
   surface:   'rgb(var(--i3x-surface))',

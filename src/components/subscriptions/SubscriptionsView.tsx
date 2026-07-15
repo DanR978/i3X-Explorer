@@ -8,7 +8,7 @@ import type { ObjectInstance } from '../../api/types'
 /**
  * The global subscriptions surface: every monitored item across the active
  * subscription, its live quality, and trends for the numeric ones. Not scoped to
- * the selected element — it just highlights it when there's a match.
+ * the selected element, it just highlights it when there's a match.
  */
 export function SubscriptionsView() {
   const subscriptions = useSubscriptionsStore(state => state.subscriptions)
@@ -191,7 +191,7 @@ export function SubscriptionsView() {
                           type="button"
                           disabled
                           aria-label={`Unsubscribe from ${elementId}`}
-                          title="Unsubscribe — wired in a follow-up"
+                          title="Unsubscribe, wired in a follow-up"
                           className="text-i3x-text-muted disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           ✕

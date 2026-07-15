@@ -55,7 +55,7 @@ export const VirtualObjectRows = forwardRef<VirtualObjectRowsHandle, {
 
   // Mirrors of the two measurements above. Reveal is driven imperatively from
   // TreeView's effect, which runs after this component's layout effects but
-  // still sees the *previous* render's state — the refs hold the fresh values.
+  // still sees the *previous* render's state, the refs hold the fresh values.
   const scrollMarginRef = useRef(0)
   const rowHeightRef = useRef(ESTIMATED_ROW_HEIGHT)
 
@@ -134,7 +134,7 @@ export const VirtualObjectRows = forwardRef<VirtualObjectRowsHandle, {
   }, [rows])
 
   // Resolve composition chevrons for the rows currently in view so they reflect
-  // real child counts instead of the optimistic default — without ever resolving
+  // real child counts instead of the optimistic default, without ever resolving
   // the whole catalog at once. Debounced so it fires once scrolling settles.
   useEffect(() => {
     const client = getClient()
@@ -159,7 +159,7 @@ export const VirtualObjectRows = forwardRef<VirtualObjectRowsHandle, {
       const scrollEl = scrollRef.current
       if (!scrollEl) return false
       const index = rows.findIndex(r => r.kind === 'object' && r.obj.elementId === elementId)
-      // Not in the visible forest — an ancestor is collapsed, or the filter hides it.
+      // Not in the visible forest, an ancestor is collapsed, or the filter hides it.
       if (index === -1) return false
 
       const height = rowHeightRef.current

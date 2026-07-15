@@ -2,8 +2,8 @@
 // A code like "GoodNoData" conflates two orthogonal facets, so everything here
 // splits them apart:
 //
-//   Quality     — the code's prefix, carried by COLOR (green / amber / red)
-//   Data present — whether the code lacks a "NoData" marker, carried by SHAPE
+//   Quality: the code's prefix, carried by COLOR (green / amber / red)
+//   Data present: whether the code lacks a "NoData" marker, carried by SHAPE
 //                  (solid neutral dot vs hollow neutral ring)
 //
 // This is the single source of truth for quality rendering; every surface that
@@ -15,7 +15,7 @@ export interface ElementStatus {
   quality: QualityFacet
   /** Human-readable quality prefix, e.g. "Good". Echoes the raw code when unrecognised. */
   qualityLabel: string
-  /** False when the code carries a NoData marker — the reading is valid but empty. */
+  /** False when the code carries a NoData marker, the reading is valid but empty. */
   hasData: boolean
 }
 
@@ -48,7 +48,7 @@ const QUALITY_COLOR: Record<QualityFacet, string> = {
   unknown: 'text-i3x-secondary',
 }
 
-// Tinted badge form used by the labeled variant — a quiet pill rather than a
+// Tinted badge form used by the labeled variant, a quiet pill rather than a
 // leading dot, so the Current Value status reads as a badge, not a bullet list.
 const QUALITY_PILL: Record<QualityFacet, string> = {
   good: 'bg-i3x-success/15 text-i3x-success',
@@ -59,7 +59,7 @@ const QUALITY_PILL: Record<QualityFacet, string> = {
 
 const PILL = 'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium'
 
-/** Solid = present, hollow ring = absent. Colour is inherited from the wrapper. */
+/** Solid = present, hollow ring = absent. Color is inherited from the wrapper. */
 function Dot({ hollow = false }: { hollow?: boolean }) {
   return (
     <span
@@ -74,9 +74,9 @@ function Dot({ hollow = false }: { hollow?: boolean }) {
 interface StatusFacetsProps {
   code?: string | null
   /**
-   * 'labeled'  — two pill badges: "[Good] [Value present]" (Current Value card)
-   * 'compact'  — dots + values, no field labels (Subscriptions table)
-   * 'dot'      — the two dots alone, full code in the tooltip (dense value rows)
+   * 'labeled': two pill badges: "[Good] [Value present]" (Current Value card)
+   * 'compact': dots + values, no field labels (Subscriptions table)
+   * 'dot': the two dots alone, full code in the tooltip (dense value rows)
    */
   variant?: 'labeled' | 'compact' | 'dot'
   className?: string
@@ -118,9 +118,9 @@ export function StatusFacets({ code, variant = 'labeled', className = '' }: Stat
     )
   }
 
-  // Labeled (Current Value): two pill badges. Quality is a tinted pill (colour =
+  // Labeled (Current Value): two pill badges. Quality is a tinted pill (color =
   // quality); data-presence is a neutral pill, filled when a value is present and
-  // outlined when it isn't — carrying the solid/hollow distinction without a dot.
+  // outlined when it isn't, carrying the solid/hollow distinction without a dot.
   return (
     <span className={`inline-flex items-center gap-2 ${className}`} title={code || 'Unknown'}>
       <span className="sr-only">{summary}</span>

@@ -7,11 +7,11 @@ import {
 } from './relationshipColors'
 
 /**
- * The colour key for both graphs. Rendered as HTML beneath its diagram's
+ * The color key for both graphs. Rendered as HTML beneath its diagram's
  * container rather than inside the drawing, so it never overlaps nodes and it
  * wraps on a narrow pane.
  *
- * `buckets` names the edge kinds actually present in the diagram — showing a
+ * `buckets` names the edge kinds actually present in the diagram, showing a
  * key for an edge type that can't appear would be a lie.
  */
 export function RelationshipLegend({

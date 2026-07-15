@@ -10,7 +10,7 @@ const MAX_HEIGHT = 600
  * or by subscribing to an element. It sits between the main panel and the status
  * bar, so live values stay visible while you keep browsing the model.
  *
- * Collapsing this only hides it — the SSE/polling transport lives in
+ * Collapsing this only hides it, the SSE/polling transport lives in
  * SubscriptionTransportProvider, above the views, and keeps running.
  */
 export function SubscriptionsDrawer() {

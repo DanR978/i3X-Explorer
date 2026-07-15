@@ -20,7 +20,7 @@ const TAB_LABELS: Record<TabId, string> = {
 }
 
 /**
- * View B — the element detail, shown whenever an object is selected.
+ * View B, the element detail, shown whenever an object is selected.
  * Owns the current-value fetch and the subscribe action; the tabs are
  * presentational consumers of that state.
  */
@@ -99,7 +99,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
         })
       }
 
-      // Register this object — if this throws, the catch block cleans up
+      // Register this object. If this throws, the catch block cleans up
       await client.registerMonitoredItems(subscriptionId, [object.elementId])
       useSubscriptionsStore.getState().addMonitoredItem(subscriptionId, object.elementId)
       // Reveal the global drawer so the new monitored item is visible immediately.
@@ -169,9 +169,12 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
           id={`panel-${activeTab}`}
           aria-labelledby={`tab-${activeTab}`}
           tabIndex={0}
-          // Relationships is the Fusion-style workspace — it spans the whole window;
-          // the reading-width tabs stay capped at 960px.
-          className={`focus:outline-none ${activeTab === 'relationships' ? '' : 'max-w-[960px]'}`}
+          // Relationships is the Fusion-style workspace: it spans the whole window
+          // and fills the height, growing/shrinking with it, down to a 30rem floor
+          // (then the panel scrolls). The reading-width tabs stay capped at 960px.
+          className={`focus:outline-none ${
+            activeTab === 'relationships' ? 'h-full min-h-[30rem]' : 'max-w-[960px]'
+          }`}
         >
           {activeTab === 'overview' && (
             <OverviewTab

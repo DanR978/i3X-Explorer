@@ -53,7 +53,7 @@ export function Toolbar() {
   } = useConnectionStore()
 
   const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore()
-  // Clearing the selection is what "Home" means — the main panel renders its
+  // Clearing the selection is what "Home" means, the main panel renders its
   // Home shell whenever nothing is selected.
   const showHome = () => selectItem(null)
   const canGoBack = useExplorerStore(s => s.historyIndex > 0)
@@ -71,7 +71,7 @@ export function Toolbar() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isConnected])
 
-  // X1/X2, the side buttons on most mice. Electron only — in the web build they
+  // X1/X2, the side buttons on most mice. Electron only, in the web build they
   // drive the browser's own history and taking them over would strand the SPA.
   useEffect(() => {
     if (!window.electronAPI) return

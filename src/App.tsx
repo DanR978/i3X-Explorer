@@ -45,7 +45,7 @@ function App() {
           {/* Left sidebar - Tree browser */}
           <Sidebar />
 
-          {/* Main content area — Home shell or tabbed element detail */}
+          {/* Main content area, Home shell or tabbed element detail */}
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <MainPanel />
           </div>

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 /**
  * The "?" next to something that isn't self-explanatory.
  *
- * Explanations do not belong in body copy — a paragraph under a chart is read
+ * Explanations do not belong in body copy, a paragraph under a chart is read
  * once, by nobody, and it pushes the actual content down. This puts the caveat
  * behind a marker: hover for the one-liner, click for the full story.
  */
@@ -14,7 +14,7 @@ export function InfoHint({
   children,
   align = 'right',
 }: {
-  /** The hover tooltip — one line, says what the popup will explain. */
+  /** The hover tooltip, one line, says what the popup will explain. */
   label: string
   /** Heading of the popup. */
   title: string

@@ -11,7 +11,7 @@ import { Card, SegmentedControl } from './primitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
 
-/** Bars past this fold into an "Other" row — a catalog can declare hundreds of types. */
+/** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
 const MAX_BARS = 12
 
 /** The containment matrix is square-ish; past this the cells stop being readable. */
@@ -20,7 +20,7 @@ const MAX_MATRIX = 10
 /**
  * Sequential ramp, one hue, light → dark. Five steps: past ~7 bins adjacent
  * classes blur, and the eye can't rank them anyway. Alpha over the surface
- * rather than five hard-coded colours, so it tracks the theme in both modes.
+ * rather than five hard-coded colors, so it tracks the theme in both modes.
  */
 const RAMP = [0.14, 0.32, 0.52, 0.74, 1] as const
 
@@ -36,7 +36,7 @@ const swatch = (step: number) =>
   step < 0 ? 'transparent' : `rgb(var(--i3x-primary) / ${RAMP[step]})`
 
 /**
- * What the model is made of — and, more to the point, where to start reading it.
+ * What the model is made of, and, more to the point, where to start reading it.
  *
  * On a 100k-object server the counts alone are wallpaper: knowing there are
  * 100,000 objects tells you nothing you can act on. So every row here is a way
@@ -85,7 +85,7 @@ export function ModelOverview({
           actions={
             <InfoHint label="What is this?" title="Largest containers">
               The objects holding the most direct children. On a big model this is where the
-              structure lives — start here rather than scrolling the tree. Click one to open it.
+              structure lives, start here rather than scrolling the tree. Click one to open it.
             </InfoHint>
           }
         >
@@ -103,7 +103,7 @@ export function ModelOverview({
           }`}
           actions={
             <InfoHint label="What is this?" title="Entry points">
-              Objects you can't navigate up from — either they name no parent, or their parent isn't
+              Objects you can't navigate up from: either they name no parent, or their parent isn't
               in this catalog. They're the tops of the hierarchy, and the natural places to start
               browsing.
               <br />
@@ -115,7 +115,7 @@ export function ModelOverview({
         >
           <ObjectList
             items={stats.rootObjects}
-            empty="No roots — every object names a parent."
+            empty="No roots, every object names a parent."
             unit="children"
             onSelect={selectElement}
           />
@@ -166,7 +166,7 @@ export function ModelOverview({
   )
 }
 
-/** The headline numbers. Proportional figures — tabular-nums makes display sizes look loose. */
+/** The headline numbers. Proportional figures, tabular-nums makes display sizes look loose. */
 function StatRow({ stats }: { stats: ModelStats }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -179,7 +179,7 @@ function StatRow({ stats }: { stats: ModelStats }) {
         hint={
           <InfoHint label="What counts as a link?" title="Containment links">
             Every object that names a parent in this catalog. These are compositional{' '}
-            <span className="font-mono">parentId</span> links — the only relationships the client
+            <span className="font-mono">parentId</span> links, the only relationships the client
             can know without asking the server about each object one at a time.
             <br />
             <br />
@@ -252,8 +252,8 @@ function Issues({ stats }: { stats: ModelStats }) {
           it won't list.
           <br />
           <br />
-          Nothing can be known about where they sit, so they're counted as roots — you can't
-          navigate up from one — and they appear under{' '}
+          Nothing can be known about where they sit, so they're counted as roots, you can't
+          navigate up from one, and they appear under{' '}
           <b className="text-i3x-text">Entry points</b>.
         </InfoHint>
       ),
@@ -268,7 +268,7 @@ function Issues({ stats }: { stats: ModelStats }) {
       hint: (
         <InfoHint label="What does untyped mean?" title="Untyped objects" align="left">
           These objects carry no <span className="font-mono">typeId</span>, so nothing describes
-          their shape — no schema, and no way to group them with anything else.
+          their shape, no schema, and no way to group them with anything else.
         </InfoHint>
       ),
     })
@@ -282,7 +282,7 @@ function Issues({ stats }: { stats: ModelStats }) {
       hint: (
         <InfoHint label="Why does this matter?" title="Types with no instances" align="left">
           The server declares these object types but no object in the catalog uses them. Harmless in
-          itself — but on a partial load it's a hint that objects you expected are missing.
+          itself, but on a partial load it's a hint that objects you expected are missing.
         </InfoHint>
       ),
     })
@@ -342,7 +342,7 @@ function ObjectList({
 }
 
 /**
- * Ranked magnitude, so: one hue for every bar. Colouring bars darker-where-bigger
+ * Ranked magnitude, so: one hue for every bar. Coloring bars darker-where-bigger
  * would double-encode the length as hue and burn the only free channel on
  * information the bar already shows.
  */
@@ -388,7 +388,7 @@ function BarList({
           </>
         )
 
-        const tooltip = `${item.label} — ${item.count.toLocaleString()} ${unit} (${share.toFixed(1)}%)${
+        const tooltip = `${item.label}, ${item.count.toLocaleString()} ${unit} (${share.toFixed(1)}%)${
           clickable ? ' · click to open' : ''
         }`
 
@@ -418,11 +418,11 @@ function BarList({
 /**
  * What contains what: parent type × child type, cell = how many objects of the
  * child type sit under an object of the parent type. This is the question a
- * schema-less catalog can't answer for you — and at 100k objects it's the fastest
+ * schema-less catalog can't answer for you, and at 100k objects it's the fastest
  * way to learn the model's grammar without opening a single node.
  *
- * A heatmap is a grid of magnitudes, so the colour job is sequential — one hue,
- * more-is-darker, with a scale legend. Values are never colour-only: the hovered
+ * A heatmap is a grid of magnitudes, so the color job is sequential, one hue,
+ * more-is-darker, with a scale legend. Values are never color-only: the hovered
  * cell is read out above the grid, and the Table view lists every link with its
  * count.
  */
@@ -449,7 +449,7 @@ function ContainmentMatrix({ stats }: { stats: ModelStats }) {
     return (
       <Card title="What contains what">
         <p className="text-xs text-i3x-text-muted">
-          No containment links — every object in this model is a root.
+          No containment links, every object in this model is a root.
         </p>
       </Card>
     )
@@ -463,7 +463,7 @@ function ContainmentMatrix({ stats }: { stats: ModelStats }) {
           <InfoHint label="How do I read this?" title="What contains what">
             Each cell counts the objects of the <b className="text-i3x-text">column</b> type that sit
             directly under an object of the <b className="text-i3x-text">row</b> type. Darker means
-            more. It's the model's grammar — "a Line holds Machines, a Machine holds Sensors" —
+            more. It's the model's grammar, "a Line holds Machines, a Machine holds Sensors",
             readable without opening a single node.
             <br />
             <br />
@@ -510,7 +510,7 @@ function ContainmentMatrix({ stats }: { stats: ModelStats }) {
         </div>
       ) : (
         <div>
-          {/* The hovered cell, read out in text — the colour is never the only channel. */}
+          {/* The hovered cell, read out in text, the color is never the only channel. */}
           <p className="h-4 mb-2 text-[11.5px] text-i3x-text-muted truncate">
             {hovered ?? 'Hover a cell for its count.'}
           </p>

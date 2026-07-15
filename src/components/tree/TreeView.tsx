@@ -190,8 +190,8 @@ export function TreeView() {
   // Bring the selected node into view. Reveal is owned entirely here: an `obj:`
   // id identifies an object, not a tree, and objects appear both under
   // Namespaces → ObjectType (plain DOM) and in the windowed Objects list, so a
-  // prefix can't say which one to scroll to. Ask the DOM first — whichever copy
-  // is mounted is the one styled selected — and fall back to the virtualized
+  // prefix can't say which one to scroll to. Ask the DOM first, whichever copy
+  // is mounted is the one styled selected, and fall back to the virtualized
   // list only when the row isn't mounted at all. Runs after VirtualObjectRows'
   // layout effects, so its measurements are settled by the time we call it.
   const virtualRowsRef = useRef<VirtualObjectRowsHandle>(null)
@@ -323,7 +323,7 @@ export function TreeView() {
    // we precompute three sets:
    //   matchingTypeIds: type IDs that have ≥1 matching object (so the type and
    //     its parent namespace stay visible even if their own names don't match)
-   //   hierarchyVisibleIds: object IDs to keep in the Hierarchy view —
+   //   hierarchyVisibleIds: object IDs to keep in the Hierarchy view,
    //     every match plus every ancestor up the parentId chain
    //   matchedNamespaceUris: namespace URIs reached transitively via matching
    //     types/objects (so a namespace whose name doesn't match still renders
@@ -384,7 +384,7 @@ export function TreeView() {
     }
   })
 
-  // Filter all objects for the Objects folder (flat list — only direct matches).
+  // Filter all objects for the Objects folder (flat list, only direct matches).
   // Materialized only while the Objects folder is open: with tens of thousands
   // of objects, filtering and building this array on every render is a large
   // cost that would otherwise be paid even while the folder is collapsed.
@@ -416,7 +416,7 @@ export function TreeView() {
 
   return (
     <div className="flex flex-col h-full min-h-0 text-i3x-text">
-      {/* Filter input — fixed header so it stays put (and full-width) while the
+      {/* Filter input, fixed header so it stays put (and full-width) while the
           tree body scrolls horizontally */}
       <div className="shrink-0 bg-i3x-surface pb-2 mb-1">
         <input
@@ -428,7 +428,7 @@ export function TreeView() {
         />
       </div>
 
-      {/* Tree body — scrolls both axes. The inner w-max wrapper grows to the
+      {/* Tree body, scrolls both axes. The inner w-max wrapper grows to the
           widest row so long labels/deep nesting extend a horizontal scrollbar,
           while min-w-full keeps rows (highlights, count leader-lines) panel-wide
           when content fits. */}

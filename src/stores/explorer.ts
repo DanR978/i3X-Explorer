@@ -22,13 +22,17 @@ export interface SelectedItem {
 // Bounded so a long browsing session can't grow the stack without limit.
 const MAX_HISTORY = 50
 
-// Hops the Relationships map walks out from the selected element. One hop is just
-// the relationship list drawn as circles — the structure only shows up past it —
-// so the default starts beyond the first level. The ceiling is what keeps a walk
-// on a deeply-linked model from turning into a hairball (and N round trips).
+// Hops the Relationships map walks out from the selected element. The default is
+// one hop (just the direct relationships); deeper walks are opt-in. The ceiling
+// caps the round trips a deep custom walk can fire (one per hop) on a deeply-linked model.
 export const MIN_RELATIONSHIP_DEPTH = 1
-export const MAX_RELATIONSHIP_DEPTH = 5
-export const DEFAULT_RELATIONSHIP_DEPTH = 3
+export const MAX_RELATIONSHIP_DEPTH = 10
+export const DEFAULT_RELATIONSHIP_DEPTH = 1
+
+// The depth picker shows pills 1..N; "+" reveals one deeper per click, up to the
+// ceiling. N lives in the store so the revealed pills persist across element
+// selections for the session (the tab is re-mounted per element).
+export const INITIAL_RELATIONSHIP_DEPTH_PILLS = 2
 
 // A node is only visible once every folder/ancestor above it is expanded, so
 // restoring a selection means restoring that path too. Mirrors the expansion
@@ -105,6 +109,8 @@ interface ExplorerState {
   // Lives here, not in the tab: MainPanel re-keys the detail view per element, so
   // tab-local state would snap back to the default on every selection.
   relationshipDepth: number
+  // Highest depth pill the picker currently shows (1..this). "+" bumps it.
+  relationshipDepthShown: number
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -125,6 +131,7 @@ interface ExplorerState {
   triggerManualRefresh: () => void
   toggleSidebar: () => void
   setRelationshipDepth: (depth: number) => void
+  revealRelationshipDepth: () => void
   reset: () => void
 }
 
@@ -149,6 +156,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   manualRefreshTick: 0,
   sidebarCollapsed: false,
   relationshipDepth: DEFAULT_RELATIONSHIP_DEPTH,
+  relationshipDepthShown: INITIAL_RELATIONSHIP_DEPTH_PILLS,
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({
@@ -165,8 +173,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
   setAllObjects: (objects) => {
     // Index children by parentId and objects by elementId once here, so the
-    // hierarchy view resolves a node's children — and ancestor walks resolve a
-    // parent — with a single Map lookup instead of scanning the whole list.
+    // hierarchy view resolves a node's children, and ancestor walks resolve a
+    // parent, with a single Map lookup instead of scanning the whole list.
     const childrenByParent = new Map<string, ObjectInstance[]>()
     const objectIndex = new Map<string, ObjectInstance>()
     for (const o of objects) {
@@ -271,6 +279,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   setRelationshipDepth: (depth) => set({
     relationshipDepth: Math.max(MIN_RELATIONSHIP_DEPTH, Math.min(MAX_RELATIONSHIP_DEPTH, depth)),
   }),
+  revealRelationshipDepth: () => set(state => ({
+    relationshipDepthShown: Math.min(MAX_RELATIONSHIP_DEPTH, state.relationshipDepthShown + 1),
+  })),
 
   reset: () => set({
     namespaces: [],

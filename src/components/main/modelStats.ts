@@ -3,19 +3,19 @@ import type { ObjectInstance, ObjectType } from '../../api/types'
 /**
  * The model, counted rather than drawn.
  *
- * A node-link map of a whole catalog is a hairball — at the scale this app
+ * A node-link map of a whole catalog is a hairball, at the scale this app
  * browses (tens of thousands of objects) it says nothing you can act on. The
  * questions people actually bring to a model overview are statistical: how much
  * of each type is there, how deep does the hierarchy go, and which types contain
  * which. So this module answers those, and it answers them from the store alone
- * — no requests, no caps, no sampling.
+ * (no requests, no caps, no sampling).
  *
  * Everything here is derived from `parentId` links, which are the only edges the
  * client can know without a per-object round trip. That is a real limit and the
  * panel says so out loud rather than implying it has drawn every relationship.
  */
 
-/** A counted category — a type, a namespace, a hierarchy level. */
+/** A counted category, a type, a namespace, a hierarchy level. */
 export interface Tally {
   key: string
   label: string
@@ -43,7 +43,7 @@ export interface TypeLink {
 
 export interface ModelStats {
   objects: number
-  /** Types with at least one instance — not the number declared. */
+  /** Types with at least one instance, not the number declared. */
   typesInUse: number
   typesDeclared: number
   namespaces: number
@@ -51,10 +51,10 @@ export interface ModelStats {
   links: number
   /**
    * Objects you cannot navigate up from: no parent, or a parent outside the
-   * catalog. The tops of the loaded hierarchy — level 0 of the depth histogram.
+   * catalog. The tops of the loaded hierarchy, level 0 of the depth histogram.
    */
   roots: number
-  /** Of those roots, the ones that DO name a parent — the catalog just doesn't hold it. */
+  /** Of those roots, the ones that DO name a parent, the catalog just doesn't hold it. */
   orphans: number
   /** Objects that contain nothing. */
   leaves: number
@@ -66,7 +66,7 @@ export interface ModelStats {
   /** Mean children per object that has any. */
   avgFanout: number
 
-  /** Objects with no typeId at all — a modelling smell. */
+  /** Objects with no typeId at all, a modeling smell. */
   untyped: number
   /** Declared types with zero instances. */
   unusedTypes: number
@@ -86,7 +86,7 @@ export interface ModelStats {
 
   /** Type-to-type containment, ranked. The "how they relate" of the panel. */
   typeLinks: TypeLink[]
-  /** Distinct parent/child types present in typeLinks, ranked by total volume — the matrix axes. */
+  /** Distinct parent/child types present in typeLinks, ranked by total volume, the matrix axes. */
   parentTypes: Tally[]
   childTypes: Tally[]
 }
@@ -136,7 +136,7 @@ export function computeModelStats(
     const parent = hasParent(object) ? index.get(object.parentId as string) : undefined
 
     if (!parent) {
-      // No parent at all, or a parentId naming something outside the catalog —
+      // No parent at all, or a parentId naming something outside the catalog,
       // either way you cannot navigate UP from here, so it is a top of the loaded
       // hierarchy and belongs in the entry-point list. Counting only the former as
       // a root would contradict the depth histogram, which has to place orphans at
@@ -283,7 +283,7 @@ function computeDepths(
 
 /**
  * The `limit` largest items by `score`, highest first. A linear scan keeping a
- * small sorted buffer — sorting the whole array to read the top eight is O(n log n)
+ * small sorted buffer, sorting the whole array to read the top eight is O(n log n)
  * for nothing, and this list can be 100k long.
  */
 function topBy<T>(items: T[], score: (item: T) => number, limit: number): T[] {

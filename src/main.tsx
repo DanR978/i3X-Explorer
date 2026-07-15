@@ -10,7 +10,7 @@ interface SiteConfig {
 }
 
 async function init() {
-  // Fetch runtime config — lets server operators override defaults without rebuilding.
+  // Fetch runtime config, lets server operators override defaults without rebuilding.
   // Only applied on first visit; localStorage values take priority for returning users.
   try {
     const res = await fetch('./config.json')
@@ -26,7 +26,7 @@ async function init() {
       }
     }
   } catch {
-    // No config.json or fetch failed — use compiled defaults
+    // No config.json or fetch failed, use compiled defaults
   }
 
   ReactDOM.createRoot(document.getElementById('root')!).render(

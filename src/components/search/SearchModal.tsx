@@ -87,7 +87,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
       // Read fresh: a first-run fetch above rebuilt the store's index.
       const objectIndex = useExplorerStore.getState().objectIndex
 
-      // One O(n) pass that stops at the cap — no throwaway filter/slice/map
+      // One O(n) pass that stops at the cap, no throwaway filter/slice/map
       // arrays. Cap is applied in store order (before sort), same as before.
       const searchResults: SearchResult[] = []
       for (const obj of objects) {

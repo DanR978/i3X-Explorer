@@ -31,8 +31,29 @@ function formatComponentValueShort(v: unknown): string {
 // distinguishing part). The full id is in the row tooltip.
 const COMPONENT_ID_TAIL = 14
 
+// Some servers deliver a JSON object or array as a *string* (escaped text). Decode
+// it so the Parsed view can render a tree instead of a wall of quotes. Returns
+// undefined for scalars and for strings that aren't a valid JSON object/array, so
+// those keep rendering as plain text.
+function tryParseJsonStructure(v: unknown): unknown | undefined {
+  if (typeof v !== 'string') return undefined
+  const trimmed = v.trim()
+  if (trimmed[0] !== '{' && trimmed[0] !== '[') return undefined
+  try {
+    const parsed = JSON.parse(trimmed)
+    return parsed !== null && typeof parsed === 'object' ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
   const components = value.components ? Object.entries(value.components) : []
+
+  // Objects and arrays render as a tree; a value delivered as a JSON string is
+  // decoded and rendered as a tree too. Scalars and non-JSON strings stay as text.
+  const jsonValue =
+    typeof value.value === 'object' ? value.value : tryParseJsonStructure(value.value)
 
   // Raw view: the untouched server response body. Falls back to the normalized
   // value object for sources that don't retain a raw body (e.g. live updates).
@@ -53,14 +74,14 @@ export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
 
   return (
     <div className="bg-i3x-bg border border-i3x-border rounded-lg overflow-hidden">
-      {/* 1.0: HTTP 206 — a server-imposed limit truncated the composition tree */}
+      {/* 1.0: HTTP 206, a server-imposed limit truncated the composition tree */}
       {value.partialDetail && (
         <div className="px-3 py-1.5 bg-i3x-warning/10 border-b border-i3x-warning/20 text-xs text-i3x-warning">
           ⚠ Partial result: {value.partialDetail}
         </div>
       )}
 
-      {/* Metadata bar. Quality and data-presence are separate facets — a
+      {/* Metadata bar. Quality and data-presence are separate facets, a
           "GoodNoData" reading is good quality AND empty, not a third state. */}
       {(value.timestamp || value.quality) && (
         <div className="px-3 py-2 border-b border-i3x-border flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
@@ -81,8 +102,8 @@ export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
 
       {/* Value content */}
       <div className="p-3">
-        {typeof value.value === 'object' ? (
-          <JsonViewer data={value.value} initialExpanded={true} />
+        {jsonValue !== undefined ? (
+          <JsonViewer data={jsonValue} initialExpanded={true} />
         ) : (
           <code className="text-sm text-i3x-text">{String(value.value)}</code>
         )}

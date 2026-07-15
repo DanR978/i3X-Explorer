@@ -14,7 +14,7 @@ import {
 const FolderIcon = () => (
   <span style={{ filter: 'sepia(1) saturate(1.6) hue-rotate(-15deg) brightness(0.89)' }}>🗄️</span>
 )
-// 📁 emoji renders grey on some macOS configurations; sepia/saturate filter
+// 📁 emoji renders gray on some macOS configurations; sepia/saturate filter
 // forces a manilla tint while keeping the emoji aesthetic of the rest of the
 // tree.
 const FolderTypeIcon = () => (
@@ -31,7 +31,7 @@ const SCALAR_TYPES = new Set(['number', 'integer', 'string', 'boolean'])
 
 // Per the i3X Implementation Guide: schema.type is the sole authoritative leaf signal.
 // scalar type (number/integer/string/boolean) → leaf (📊); everything else → branch (📦).
-// schema.type may be a union array (e.g. ["number","null"]) — treat as leaf if any member is scalar.
+// schema.type may be a union array (e.g. ["number","null"]), treat as leaf if any member is scalar.
 function bucketInstance(
   obj: ObjectInstance | undefined,
   typeIndex?: Map<string, ObjectType>
@@ -53,7 +53,7 @@ interface TreeNodeProps {
   data?: Namespace | ObjectType | ObjectInstance
   depth: number
   hasChildren?: boolean
-  // Optional minimalist count badge rendered to the right of the label —
+  // Optional minimalist count badge rendered to the right of the label,
   // small, muted, no brackets. Only rendered when defined.
   count?: number
   children?: React.ReactNode
