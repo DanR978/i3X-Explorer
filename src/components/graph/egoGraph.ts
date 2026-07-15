@@ -28,6 +28,12 @@ export interface EgoNode {
   depth: number
   /** The node this one was first reached from (the BFS tree edge). Root: undefined. */
   via?: string
+  /**
+   * Relationship bucket of the edge it was first reached through, so the layout
+   * knows the direction: a 'parent' edge is upstream (draw left), everything else
+   * is downstream (draw right). Root: undefined.
+   */
+  viaBucket?: RelationshipBucket
 }
 
 export interface EgoEdge {
@@ -187,13 +193,18 @@ export async function expandEgoGraph({
 
       for (const neighbor of neighbors) {
         const id = neighbor.object.elementId
+        const bucket = bucketOf(neighbor.relationshipType)
 
         if (!nodes.has(id)) {
-          nodes.set(id, { object: neighbor.object, depth: level, via: source.elementId })
+          nodes.set(id, {
+            object: neighbor.object,
+            depth: level,
+            via: source.elementId,
+            viaBucket: bucket,
+          })
           next.push(neighbor.object)
         }
 
-        const bucket = bucketOf(neighbor.relationshipType)
         const key = edgeKey(source.elementId, id, bucket)
         if (seen.has(key)) continue
         seen.add(key)

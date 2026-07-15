@@ -283,12 +283,13 @@ export function RelationshipGraph({
               aria-label={`Relationship tree for ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
             >
               <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.scale})`}>
-                {/* Column guides: one per hop, labelled at the top. */}
-                {layout.depths.map(columnDepth => {
-                  const x = columnDepth * COLUMN_WIDTH
+                {/* Column guides: one per generation. Negative is upstream
+                    (parents, to the left); positive is downstream (children). */}
+                {layout.columns.map(column => {
+                  const x = column * COLUMN_WIDTH
                   return (
-                    <g key={columnDepth}>
-                      {columnDepth > 0 && (
+                    <g key={column}>
+                      {column !== 0 && (
                         <line
                           x1={x}
                           y1={layout.minY - V_PAD / 2}
@@ -308,9 +309,7 @@ export function RelationshipGraph({
                         fontSize={12}
                         opacity={0.7}
                       >
-                        {columnDepth === 0
-                          ? 'root'
-                          : `${columnDepth} ${columnDepth === 1 ? 'hop' : 'hops'}`}
+                        {column === 0 ? 'root' : column < 0 ? `${-column} up` : `${column} down`}
                       </text>
                     </g>
                   )

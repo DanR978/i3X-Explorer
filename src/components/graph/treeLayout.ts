@@ -3,12 +3,14 @@ import type { EgoEdge, EgoGraph, EgoNode } from './egoGraph'
 /**
  * Left-to-right tidy tree layout for an ego graph.
  *
- * The BFS tree (each node's `via` is its parent) is laid out like an org chart:
- * depth is the column (x), and every node gets its own row (y). Leaves stack top
- * to bottom in traversal order; each parent is centred on its children. Because a
- * node never shares a row, its label always has space, so names never overlap the
- * way they do on a radial map. Non-tree edges (a node reachable more than one way)
- * are kept and drawn as curves across the columns.
+ * The BFS tree (each node's `via` is its parent) is laid out like an org chart.
+ * The column (x) is the *generation* relative to the root, from the relationship
+ * direction: a child sits one column to the right, a parent one to the left, so
+ * parents come before their children instead of sharing a hop-based column. Every
+ * node gets its own row (y): leaves stack top to bottom, and a node centres on its
+ * downstream children. Because a node never shares a row, its label always has
+ * space, so names never overlap the way they do on a radial map. Non-tree edges (a
+ * node reachable more than one way) are kept and drawn as curves across the columns.
  *
  * Pure and deterministic: same graph in, same picture out.
  */
@@ -33,8 +35,8 @@ export interface PositionedEdge extends EgoEdge {
 export interface TreeLayout {
   nodes: PositionedNode[]
   edges: PositionedEdge[]
-  /** Depths present, ascending, for the column guides. */
-  depths: number[]
+  /** Columns present, ascending, for the column guides. 0 is the root; negative is upstream (parents). */
+  columns: number[]
   minX: number
   minY: number
   maxX: number
@@ -55,7 +57,7 @@ const MAX_NODE_RADIUS = 7
 
 export function layoutTree(graph: EgoGraph): TreeLayout {
   const root = graph.nodes.find(node => node.depth === 0)
-  if (!root) return { nodes: [], edges: [], depths: [], minX: 0, minY: 0, maxX: 1, maxY: 1 }
+  if (!root) return { nodes: [], edges: [], columns: [], minX: 0, minY: 0, maxX: 1, maxY: 1 }
   const rootId = root.object.elementId
 
   // BFS tree: children keep their discovery order (egoGraph sorts them by
@@ -76,22 +78,37 @@ export function layoutTree(graph: EgoGraph): TreeLayout {
     degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
   }
 
-  // Tidy positions: a leaf takes the next row; a parent centres on its children.
-  // Recursion depth is the tree depth (capped at MAX_RELATIONSHIP_DEPTH), so this
-  // can't run away even when a level is very wide.
+  const rawById = new Map(graph.nodes.map(node => [node.object.elementId, node]))
+
+  // Tidy positions. The column is the generation relative to the root: a child is
+  // one column to the RIGHT, a parent one to the LEFT, so parents come before their
+  // children instead of sharing a column. A leaf takes the next row; a parent
+  // centres on its children. Recursion depth is the tree depth (capped at
+  // MAX_RELATIONSHIP_DEPTH), so it can't run away even when a level is very wide.
   const pos = new Map<string, { x: number; y: number }>()
+  const columnSet = new Set<number>()
   let nextRow = 0
-  const place = (id: string, depth: number): void => {
+  const place = (id: string, column: number): void => {
+    columnSet.add(column)
     const kids = children.get(id) ?? []
-    const x = depth * COLUMN_WIDTH
+    const x = column * COLUMN_WIDTH
     if (kids.length === 0) {
       pos.set(id, { x, y: nextRow * ROW_HEIGHT })
       nextRow += 1
       return
     }
-    for (const kid of kids) place(kid, depth + 1)
-    const firstY = pos.get(kids[0])!.y
-    const lastY = pos.get(kids[kids.length - 1])!.y
+    // Upstream kids sort first (egoGraph orders parent-ish before child-ish), so
+    // they take the top rows; each downstream kid then flows below in order.
+    for (const kid of kids) {
+      const step = rawById.get(kid)?.viaBucket === 'parent' ? -1 : 1
+      place(kid, column + step)
+    }
+    // Centre on the downstream (right) children so a node lines up with its own
+    // children, not with an upstream parent that merely shares its row band.
+    const down = kids.filter(kid => rawById.get(kid)?.viaBucket !== 'parent')
+    const anchor = down.length > 0 ? down : kids
+    const firstY = pos.get(anchor[0])!.y
+    const lastY = pos.get(anchor[anchor.length - 1])!.y
     pos.set(id, { x, y: (firstY + lastY) / 2 })
   }
   place(rootId, 0)
@@ -138,9 +155,7 @@ export function layoutTree(graph: EgoGraph): TreeLayout {
   let minY = 0
   let maxX = 0
   let maxY = 0
-  const depthSet = new Set<number>()
   for (const node of nodes) {
-    depthSet.add(node.depth)
     if (node.x < minX) minX = node.x
     if (node.x > maxX) maxX = node.x
     if (node.y < minY) minY = node.y
@@ -150,7 +165,7 @@ export function layoutTree(graph: EgoGraph): TreeLayout {
   return {
     nodes,
     edges,
-    depths: [...depthSet].sort((a, b) => a - b),
+    columns: [...columnSet].sort((a, b) => a - b),
     minX,
     minY,
     maxX,
