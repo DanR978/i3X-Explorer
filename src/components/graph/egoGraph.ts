@@ -45,10 +45,6 @@ export interface EgoEdge {
 export interface EgoGraph {
   nodes: EgoNode[]
   edges: EgoEdge[]
-  /** Neighbours the caps below kept out of the graph. */
-  omitted: number
-  /** True when a cap — not the requested depth — ended the walk. */
-  capped: boolean
 }
 
 /** The slices of the explorer store the walk reads. */
@@ -56,12 +52,6 @@ export interface StoreView {
   objectIndex: Map<string, ObjectInstance>
   childrenByParent: Map<string, ObjectInstance[]>
 }
-
-/** Every node is an SVG element and the layout is O(n); past this it stops being a picture. */
-export const MAX_EGO_NODES = 400
-
-/** One composition object can own thousands of children. Past this we count them instead. */
-export const MAX_FANOUT = 60
 
 /** v0 has no batch endpoint, so a wide frontier becomes many requests. Don't open them all at once. */
 const V0_CONCURRENCY = 6
@@ -183,8 +173,6 @@ export async function expandEgoGraph({
   const nodes = new Map<string, EgoNode>([[root.elementId, { object: root, depth: 0 }]])
   const edges: EgoEdge[] = []
   const seen = new Set<string>()
-  let omitted = 0
-  let capped = false
 
   let frontier: ObjectInstance[] = [root]
 
@@ -196,23 +184,11 @@ export async function expandEgoGraph({
 
     for (const source of frontier) {
       const neighbors = directNeighbors(source, related.get(source.elementId) ?? [], store)
-      const visible = neighbors.slice(0, MAX_FANOUT)
-      if (neighbors.length > visible.length) {
-        omitted += neighbors.length - visible.length
-        capped = true
-      }
 
-      for (const neighbor of visible) {
+      for (const neighbor of neighbors) {
         const id = neighbor.object.elementId
 
         if (!nodes.has(id)) {
-          // Budget exhausted: drop the node AND its edge. An edge to a node that
-          // isn't in the graph would render as a line into empty space.
-          if (nodes.size >= MAX_EGO_NODES) {
-            omitted++
-            capped = true
-            continue
-          }
           nodes.set(id, { object: neighbor.object, depth: level, via: source.elementId })
           next.push(neighbor.object)
         }
@@ -233,5 +209,5 @@ export async function expandEgoGraph({
     frontier = next
   }
 
-  return { nodes: [...nodes.values()], edges, omitted, capped }
+  return { nodes: [...nodes.values()], edges }
 }

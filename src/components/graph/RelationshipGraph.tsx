@@ -4,7 +4,7 @@ import { getClient } from '../../api/client'
 import { useExplorerStore } from '../../stores/explorer'
 import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
-import { expandEgoGraph, MAX_EGO_NODES, type EgoGraph } from './egoGraph'
+import { expandEgoGraph, type EgoGraph } from './egoGraph'
 import { layoutRadial, type PositionedNode } from './radialLayout'
 
 /** The MIME a dragged relationship row carries. Also the handle the graph drop target looks for. */
@@ -211,12 +211,12 @@ export function RelationshipGraph({
   const extent = layout?.extent ?? 200
 
   return (
-    <div>
+    <div className="flex flex-col h-full min-h-0">
       <div
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDropTarget(false)}
         onDrop={handleDrop}
-        className={`relative h-[26rem] sm:h-[30rem] rounded-xl border overflow-hidden bg-i3x-bg transition-colors motion-reduce:transition-none ${
+        className={`relative flex-1 min-h-0 rounded-xl border overflow-hidden bg-i3x-bg transition-colors motion-reduce:transition-none ${
           isDropTarget ? 'border-i3x-primary ring-2 ring-i3x-primary/40' : 'border-i3x-border'
         }`}
       >
@@ -347,12 +347,8 @@ export function RelationshipGraph({
         )}
       </div>
 
-      {graph && (graph.capped || isLoading) && (
-        <p className="mt-2 text-[11.5px] text-i3x-text-muted">
-          {isLoading
-            ? 'Expanding…'
-            : `Showing ${graph.nodes.length.toLocaleString()} of the nearest objects — ${graph.omitted.toLocaleString()} more beyond the ${MAX_EGO_NODES}-node limit are not drawn. Lower the depth, or open a node to re-centre on it.`}
-        </p>
+      {isLoading && graph && (
+        <p className="mt-2 shrink-0 text-[11.5px] text-i3x-text-muted">Expanding…</p>
       )}
     </div>
   )
@@ -418,7 +414,7 @@ function GraphNode({
             strokeLinejoin: 'round',
           }}
         >
-          {node.object.displayName}
+          {truncateLabel(node.object.displayName)}
         </text>
       )}
     </g>
@@ -449,4 +445,9 @@ function GraphButton({
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="h-full grid place-items-center text-center px-6">{children}</div>
+}
+
+/** Every node is labelled; a very long name is clipped here and the hover card carries the full one. */
+function truncateLabel(name: string, max = 24): string {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }
