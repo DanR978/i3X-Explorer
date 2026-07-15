@@ -13,16 +13,16 @@ import { useElementNavigation } from '../navigation'
 
 /**
  * One panel, two views of the same thing, laid out like a Fusion 360 workspace:
- * the browser tree on the left, the canvas on the right.
+ * the browser list on the left, the tree canvas on the right.
  *
  * The list (left) answers "what is this connected to?": every direct
- * relationship, hierarchy and non-hierarchy alike, in one place. The map (right)
+ * relationship, hierarchy and non-hierarchy alike, in one place. The tree (right)
  * answers "what is it connected to through those?", which only becomes a real
- * question past the first hop, so the map walks out to a configurable depth
+ * question past the first hop, so the tree walks out to a configurable depth
  * rather than stopping at the neighbors the list already spells out.
  *
- * Dragging a row from the list onto the map re-centers the map on it, so you can
- * follow a chain outward without leaving the element you're inspecting.
+ * Dragging a row from the list onto the tree re-roots it on that element, so you
+ * can follow a chain outward without leaving the element you're inspecting.
  */
 export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const objectIndex = useExplorerStore(state => state.objectIndex)
@@ -30,15 +30,15 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const setDepth = useExplorerStore(state => state.setRelationshipDepth)
   const { selectElement, selectObject } = useElementNavigation()
 
-  // What the map is centered on. null = the selected element itself; anything else
-  // is a neighbor the user dropped in, which re-centers the map WITHOUT
+  // What the tree is rooted on. null = the selected element itself; anything else
+  // is a neighbor the user dropped in, which re-roots the tree WITHOUT
   // navigating, so the detail view around it stays put.
   const [focused, setFocused] = useState<ObjectInstance | null>(null)
 
-  // The element hovered in the list. The map highlights it as if hovered there.
+  // The element hovered in the list. The tree highlights it as if hovered there.
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
-  // Selecting a different element resets the map back to it. (MainPanel re-keys
+  // Selecting a different element resets the tree back to it. (MainPanel re-keys
   // this view per element, so this only fires if that ever stops being true.)
   useEffect(() => {
     setFocused(null)
@@ -55,7 +55,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   )
 
   // A drop only carries the elementId across the DOM, so it is resolved against
-  // the catalog. A related object the store has never seen can't be centered this
+  // the catalog. A related object the store has never seen can't be rooted this
   // way. The ◎ button on each row hands over the whole object and always can.
   const focusElementId = (elementId: string) => {
     const target = objectIndex.get(elementId)
@@ -116,7 +116,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
       </div>
 
       <p className="mt-3 shrink-0 text-[11.5px] text-i3x-text-muted">
-        Hover a row to spotlight it on the map · drag a row onto the map to center it there · drag to
+        Hover a row to spotlight it on the tree · drag a row onto the tree to root it there · drag to
         pan · scroll to zoom · click a node to open it
       </p>
 

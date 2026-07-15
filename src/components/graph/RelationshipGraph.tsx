@@ -5,16 +5,34 @@ import { useExplorerStore } from '../../stores/explorer'
 import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
 import { expandEgoGraph, type EgoGraph } from './egoGraph'
-import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
+import { COLUMN_WIDTH, layoutTree, MAX_LABEL_CHARS, type PositionedNode } from './treeLayout'
 
 /** The MIME a dragged relationship row carries. Also the handle the graph drop target looks for. */
 export const ELEMENT_DRAG_TYPE = 'application/x-i3x-element-id'
 
-const MIN_SCALE = 0.35
+const MIN_SCALE = 0.2
 const MAX_SCALE = 20
 
+// Label + node sizes live in diagram units and scale with the map. The tree gives
+// every node its own row, so they never collide however the map is scaled.
+const FONT = 14
+const LABEL_GAP = 8
+
+// The initial view. Content smaller than the minimum is shown centred at a
+// comfortable size rather than blown up to fill the pane; content larger than the
+// maximum is shown at a readable scale and the rest is reached by scrolling.
+const LEFT_PAD = 34
+const RIGHT_PAD = 250
+const V_PAD = 32
+const MIN_VIEW_W = 1000
+const MIN_VIEW_H = 520
+const MAX_VIEW_W = 2800
+const MAX_VIEW_H = 900
+
+const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value))
+
 export interface RelationshipGraphProps {
-  /** The element at the center: the selected object, or whatever was dropped in. */
+  /** The element at the root of the tree: the selected object, or whatever was dropped in. */
   root: ObjectInstance
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
@@ -30,11 +48,13 @@ export interface RelationshipGraphProps {
 }
 
 /**
- * The depth-N relationship map for one element.
+ * The depth-N relationship map for one element, drawn as a left-to-right tree.
  *
- * Rings are hops: the root at the center, its direct relationships on ring 1,
- * theirs on ring 2, and so on. Edge color is the relationship bucket, read from
- * the inner node outward, matching the legend below the card.
+ * The root sits on the left; each hop is a column to the right; every node gets
+ * its own row. One node per row means a label always has space, so names never
+ * overlap the way they do on a radial map. Edge color is the relationship bucket,
+ * matching the legend below the card; cross-links (a node reached more than one
+ * way) are the dashed curves.
  */
 export function RelationshipGraph({
   root,
@@ -96,18 +116,7 @@ export function RelationshipGraph({
     }
   }, [root, depth])
 
-  const layout = useMemo(() => (graph ? layoutRadial(graph) : null), [graph])
-
-  // Ring guides, derived from the laid-out nodes so they can't drift from them.
-  const rings = useMemo(() => {
-    if (!layout) return []
-    const byDepth = new Map<number, number>()
-    for (const node of layout.nodes) {
-      if (node.depth === 0) continue
-      byDepth.set(node.depth, Math.hypot(node.x, node.y))
-    }
-    return [...byDepth.entries()].sort((a, b) => a[0] - b[0])
-  }, [layout])
+  const layout = useMemo(() => (graph ? layoutTree(graph) : null), [graph])
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -221,7 +230,16 @@ export function RelationshipGraph({
   const dimmed = (id: string) =>
     activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
 
-  const extent = layout?.extent ?? 200
+  // The initial view: the content box, clamped so a small tree isn't blown up and a
+  // huge one isn't shrunk to nothing (you scroll instead). Centred on the content.
+  const left = (layout?.minX ?? 0) - LEFT_PAD
+  const right = (layout?.maxX ?? 0) + RIGHT_PAD
+  const top = (layout?.minY ?? 0) - V_PAD
+  const bottom = (layout?.maxY ?? 0) + V_PAD
+  const viewW = clamp(right - left, MIN_VIEW_W, MAX_VIEW_W)
+  const viewH = clamp(bottom - top, MIN_VIEW_H, MAX_VIEW_H)
+  const viewX = (left + right) / 2 - viewW / 2
+  const viewY = (top + bottom) / 2 - viewH / 2
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -252,9 +270,7 @@ export function RelationshipGraph({
           layout && (
             <svg
               ref={svgRef}
-              viewBox={`${-extent} ${-extent} ${extent * 2} ${extent * 2}`}
-              // Fit the whole graph in view, centered, so everything is always
-              // visible. A wide pane gets side margins rather than cropping nodes.
+              viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
               preserveAspectRatio="xMidYMid meet"
               className={`w-full h-full select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} ${
                 isLoading ? 'opacity-50' : ''
@@ -264,48 +280,59 @@ export function RelationshipGraph({
               onPointerUp={endPan}
               onPointerCancel={endPan}
               role="img"
-              aria-label={`Relationship map for ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
+              aria-label={`Relationship tree for ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
             >
               <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.scale})`}>
-                {rings.map(([ringDepth, radius]) => (
-                  <g key={ringDepth}>
-                    <circle
-                      cx={0}
-                      cy={0}
-                      r={radius}
-                      fill="none"
-                      stroke="rgb(var(--i3x-border))"
-                      strokeWidth={1}
-                      strokeDasharray="2,6"
-                      opacity={0.6}
-                    />
-                    {/* Anchored due north, where the sector allocation leaves a seam. */}
-                    <text
-                      x={0}
-                      y={-radius - 5}
-                      textAnchor="middle"
-                      className="fill-i3x-text-muted"
-                      fontSize={9}
-                      opacity={0.7}
-                    >
-                      {ringDepth} {ringDepth === 1 ? 'hop' : 'hops'}
-                    </text>
-                  </g>
-                ))}
+                {/* Column guides: one per hop, labelled at the top. */}
+                {layout.depths.map(columnDepth => {
+                  const x = columnDepth * COLUMN_WIDTH
+                  return (
+                    <g key={columnDepth}>
+                      {columnDepth > 0 && (
+                        <line
+                          x1={x}
+                          y1={layout.minY - V_PAD / 2}
+                          x2={x}
+                          y2={layout.maxY + V_PAD / 2}
+                          stroke="rgb(var(--i3x-border))"
+                          strokeWidth={1}
+                          strokeDasharray="2,7"
+                          opacity={0.4}
+                        />
+                      )}
+                      <text
+                        x={x}
+                        y={layout.minY - V_PAD}
+                        textAnchor="middle"
+                        className="fill-i3x-text-muted"
+                        fontSize={12}
+                        opacity={0.7}
+                      >
+                        {columnDepth === 0
+                          ? 'root'
+                          : `${columnDepth} ${columnDepth === 1 ? 'hop' : 'hops'}`}
+                      </text>
+                    </g>
+                  )
+                })}
 
-                {layout.edges.map(edge => (
-                  <line
-                    key={`${edge.source}|${edge.target}|${edge.bucket}`}
-                    x1={edge.x1}
-                    y1={edge.y1}
-                    x2={edge.x2}
-                    y2={edge.y2}
-                    stroke={BUCKET_COLOR[edge.bucket]}
-                    strokeDasharray={dashArray(edge.bucket)}
-                    strokeWidth={1.5}
-                    opacity={dimmed(edge.source) && dimmed(edge.target) ? 0.12 : 0.85}
-                  />
-                ))}
+                {/* Edges: horizontal S-curves. Tree edges read solid-ish in the
+                    bucket color; cross-links are dashed and fainter. */}
+                {layout.edges.map(edge => {
+                  const midX = (edge.x1 + edge.x2) / 2
+                  const faded = dimmed(edge.source) && dimmed(edge.target)
+                  return (
+                    <path
+                      key={`${edge.source}|${edge.target}|${edge.bucket}`}
+                      d={`M${edge.x1},${edge.y1} C${midX},${edge.y1} ${midX},${edge.y2} ${edge.x2},${edge.y2}`}
+                      fill="none"
+                      stroke={BUCKET_COLOR[edge.bucket]}
+                      strokeDasharray={edge.tree ? dashArray(edge.bucket) : '3,4'}
+                      strokeWidth={1.5}
+                      opacity={faded ? 0.1 : edge.tree ? 0.8 : 0.5}
+                    />
+                  )
+                })}
 
                 {layout.nodes.map(node => (
                   <GraphNode
@@ -347,7 +374,7 @@ export function RelationshipGraph({
             </div>
             <div className="mt-1 text-i3x-text-muted">
               {hovered.depth === 0
-                ? 'center'
+                ? 'root'
                 : `${hovered.depth} ${hovered.depth === 1 ? 'hop' : 'hops'} out`}{' '}
               · {hovered.degree} {hovered.degree === 1 ? 'link' : 'links'} · click to open
             </div>
@@ -357,7 +384,7 @@ export function RelationshipGraph({
         {isDropTarget && (
           <div className="absolute inset-0 grid place-items-center bg-i3x-primary/5 pointer-events-none">
             <span className="bg-i3x-surface border border-i3x-primary rounded-lg px-3 py-2 text-xs text-i3x-text">
-              Drop to center the map here
+              Drop to root the tree here
             </span>
           </div>
         )}
@@ -373,7 +400,7 @@ export function RelationshipGraph({
 /**
  * Nodes are neutral so the edge colors carry the relationship, matching the
  * legend. Composition objects are hollow with a dashed border; the root is
- * filled in the primary color.
+ * filled in the primary color. The name sits to the right, inside the column.
  */
 function GraphNode({
   node,
@@ -391,12 +418,6 @@ function GraphNode({
 }) {
   const isRoot = node.depth === 0
   const isComposition = node.object.isComposition === true
-  // Push the label out along the node's own bearing, and flip its anchor across
-  // the vertical axis so it always reads away from the center.
-  const outward = isRoot ? 0 : node.radius + 6
-  const labelX = node.x + Math.cos(node.angle) * outward
-  const labelY = isRoot ? node.y - node.radius - 7 : node.y + Math.sin(node.angle) * outward
-  const anchor = isRoot ? 'middle' : Math.cos(node.angle) >= 0 ? 'start' : 'end'
 
   return (
     <g
@@ -413,7 +434,7 @@ function GraphNode({
         <circle
           cx={node.x}
           cy={node.y}
-          r={node.radius + 5}
+          r={node.radius + 4}
           fill="none"
           stroke="rgb(var(--i3x-primary))"
           strokeWidth={2}
@@ -428,32 +449,30 @@ function GraphNode({
         strokeWidth={1.5}
         strokeDasharray={isComposition && !isRoot ? COMPOSITION_DASH.join(',') : undefined}
       />
-      {/* A fat transparent disc: a 5px circle is a miserable hover target. */}
-      <circle cx={node.x} cy={node.y} r={Math.max(node.radius + 7, 13)} fill="transparent" />
-      {node.showLabel && (
-        <text
-          x={labelX}
-          y={labelY}
-          textAnchor={anchor}
-          dominantBaseline="middle"
-          fontSize={11}
-          className={
-            isRoot
-              ? 'fill-i3x-text font-medium'
-              : emphasized
-                ? 'fill-i3x-primary font-medium'
-                : 'fill-i3x-text'
-          }
-          style={{
-            paintOrder: 'stroke',
-            stroke: 'rgb(var(--i3x-bg))',
-            strokeWidth: 3,
-            strokeLinejoin: 'round',
-          }}
-        >
-          {truncateLabel(node.object.displayName)}
-        </text>
-      )}
+      {/* A fat transparent disc: a tiny circle is a miserable hover target. */}
+      <circle cx={node.x} cy={node.y} r={Math.max(node.radius + 7, 12)} fill="transparent" />
+      <text
+        x={node.x + node.radius + LABEL_GAP}
+        y={node.y}
+        textAnchor="start"
+        dominantBaseline="middle"
+        fontSize={FONT}
+        className={
+          isRoot
+            ? 'fill-i3x-text font-semibold'
+            : emphasized
+              ? 'fill-i3x-primary font-medium'
+              : 'fill-i3x-text'
+        }
+        style={{
+          paintOrder: 'stroke',
+          stroke: 'rgb(var(--i3x-bg))',
+          strokeWidth: 4,
+          strokeLinejoin: 'round',
+        }}
+      >
+        {truncateLabel(node.object.displayName)}
+      </text>
     </g>
   )
 }
@@ -484,7 +503,7 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <div className="h-full grid place-items-center text-center px-6">{children}</div>
 }
 
-/** Every node is labeled; a very long name is clipped here and the hover card carries the full one. */
+/** A very long name is clipped here; the hover card carries the full one. */
 function truncateLabel(name: string, max = MAX_LABEL_CHARS): string {
   return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }
