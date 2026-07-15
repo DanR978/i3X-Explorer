@@ -20,13 +20,14 @@ const DEPTH_OPTIONS = Array.from(
 )
 
 /**
- * Two views of the same thing, and they answer different questions.
+ * One panel, two views of the same thing, laid out like a Fusion 360 workspace:
+ * the browser tree on the left, the canvas on the right.
  *
- * The list answers "what is this connected to?" — every direct relationship,
- * hierarchy and non-hierarchy alike, in one place. The map answers "what is it
- * connected to *through* those?" — which only becomes a real question past the
- * first hop, so the map walks out to a configurable depth rather than stopping
- * at the neighbours the list already spells out.
+ * The list (left) answers "what is this connected to?" — every direct
+ * relationship, hierarchy and non-hierarchy alike, in one place. The map (right)
+ * answers "what is it connected to *through* those?" — which only becomes a real
+ * question past the first hop, so the map walks out to a configurable depth
+ * rather than stopping at the neighbours the list already spells out.
  *
  * Dragging a row from the list onto the map re-centres the map on it, so you can
  * follow a chain outward without leaving the element you're inspecting.
@@ -64,58 +65,63 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   }
 
   return (
-    <div className="space-y-3">
-      <Card title="Direct relationships">
-        <DirectRelationships element={object} onSelect={selectObject} onFocus={focusObject} />
-      </Card>
+    <Card
+      title={
+        isRefocused ? (
+          <>
+            Relationships ·{' '}
+            <span className="normal-case tracking-normal text-i3x-text">{root.displayName}</span>
+          </>
+        ) : (
+          'Relationships'
+        )
+      }
+      actions={
+        <div className="flex items-center gap-2">
+          {isRefocused && (
+            <button
+              type="button"
+              onClick={() => setFocused(null)}
+              className="text-[11px] text-i3x-primary hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+            >
+              Back to {object.displayName}
+            </button>
+          )}
+          <span className="text-[11px] text-i3x-text-muted normal-case tracking-normal">Depth</span>
+          <SegmentedControl
+            label="Relationship depth in hops"
+            value={String(depth)}
+            options={DEPTH_OPTIONS}
+            onChange={value => setDepth(Number(value))}
+          />
+        </div>
+      }
+    >
+      {/* The Fusion-style split: browser tree (left) beside the canvas (right).
+          Stacks on a narrow pane, sits side-by-side and shares one height on lg. */}
+      <div className="flex flex-col lg:flex-row gap-4 lg:h-[34rem]">
+        <div className="h-[20rem] lg:h-auto lg:w-[340px] lg:flex-shrink-0 min-h-0">
+          <DirectRelationships element={object} onSelect={selectObject} onFocus={focusObject} />
+        </div>
 
-      <Card
-        title={
-          isRefocused ? (
-            <>
-              Relationship map ·{' '}
-              <span className="normal-case tracking-normal text-i3x-text">{root.displayName}</span>
-            </>
-          ) : (
-            'Relationship map'
-          )
-        }
-        actions={
-          <div className="flex items-center gap-2">
-            {isRefocused && (
-              <button
-                type="button"
-                onClick={() => setFocused(null)}
-                className="text-[11px] text-i3x-primary hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
-              >
-                Back to {object.displayName}
-              </button>
-            )}
-            <span className="text-[11px] text-i3x-text-muted normal-case tracking-normal">Depth</span>
-            <SegmentedControl
-              label="Relationship depth in hops"
-              value={String(depth)}
-              options={DEPTH_OPTIONS}
-              onChange={value => setDepth(Number(value))}
-            />
-          </div>
-        }
-      >
-        <RelationshipGraph
-          root={root}
-          depth={depth}
-          onFocusElement={focusElementId}
-          onSelectElement={selectElement}
-        />
+        <div className="h-[26rem] lg:h-auto flex-1 min-w-0 min-h-0">
+          <RelationshipGraph
+            root={root}
+            depth={depth}
+            onFocusElement={focusElementId}
+            onSelectElement={selectElement}
+          />
+        </div>
+      </div>
 
-        <p className="mt-2 text-[11.5px] text-i3x-text-muted">
-          Drag to pan · scroll to zoom · hover a node for its links · click a node to open it
-        </p>
-      </Card>
+      <p className="mt-3 text-[11.5px] text-i3x-text-muted">
+        Drag a row onto the map to centre it there · drag to pan · scroll to zoom · click a node to
+        open it
+      </p>
 
-      {/* The key sits beneath the cards, not inside the drawing, so it can never
+      {/* The key sits below the split, not inside the drawing, so it can never
           overlap a node and it wraps on a narrow pane. */}
-      <RelationshipLegend buckets={['parent', 'child', 'inherits', 'other']} className="px-1" />
-    </div>
+      <RelationshipLegend buckets={['parent', 'child', 'inherits', 'other']} className="mt-3" />
+    </Card>
   )
 }

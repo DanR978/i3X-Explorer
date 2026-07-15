@@ -169,7 +169,9 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
           id={`panel-${activeTab}`}
           aria-labelledby={`tab-${activeTab}`}
           tabIndex={0}
-          className="max-w-[960px] focus:outline-none"
+          // Relationships is the Fusion-style workspace — it spans the whole window;
+          // the reading-width tabs stay capped at 960px.
+          className={`focus:outline-none ${activeTab === 'relationships' ? '' : 'max-w-[960px]'}`}
         >
           {activeTab === 'overview' && (
             <OverviewTab

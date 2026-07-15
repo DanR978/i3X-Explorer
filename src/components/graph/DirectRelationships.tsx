@@ -107,15 +107,15 @@ export function DirectRelationships({
   }
 
   return (
-    <div>
-      <p className="mb-2 text-[11px] text-i3x-text-muted">
+    <div className="flex flex-col h-full min-h-0">
+      <p className="mb-2 shrink-0 text-[11px] text-i3x-text-muted">
         {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag a row
-        onto the map below to centre it there
+        onto the map to centre it there
       </p>
 
-      {/* Capped so a hub with thousands of children scrolls in place instead of
-          stretching the tab. pr/-mr keeps the scrollbar off the rows. */}
-      <div className="max-h-[420px] overflow-y-auto overscroll-contain pr-1 -mr-1">
+      {/* Fills the pane and scrolls in place, so a hub with thousands of children
+          doesn't stretch the card. pr/-mr keeps the scrollbar off the rows. */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1">
         {groups.map(group => (
           <Group key={group.type} group={group} onSelect={onSelect} onFocus={onFocus} />
         ))}

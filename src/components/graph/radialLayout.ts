@@ -23,7 +23,7 @@ export interface PositionedNode extends EgoNode {
   /** Bearing from the centre, radians — labels are pushed out along it. */
   angle: number
   degree: number
-  /** False on rings too crowded to label; those nodes rely on hover. */
+  /** Always true now — every node renders its name. Kept so the renderer can stay generic. */
   showLabel: boolean
 }
 
@@ -45,19 +45,20 @@ export interface RadialLayout {
 const FIRST_RING = 135
 const RING_GAP = 115
 
-/** Circumference each node needs to itself. A crowded ring grows rather than overlapping. */
-const MIN_ARC = 30
-
-/** A ring is only labelled when its nodes have this much arc each; below it, labels would collide. */
-const LABEL_ARC = 66
+/**
+ * Circumference each node needs to itself. A crowded ring grows rather than
+ * overlapping. Every node is labelled now, so this is sized to give a label room
+ * as well as a circle — a crowded ring spreads out (and you pan/zoom into it)
+ * instead of stacking names on top of each other.
+ */
+const MIN_ARC = 46
 
 const ROOT_RADIUS = 11
 const MIN_NODE_RADIUS = 4.5
 const MAX_NODE_RADIUS = 10
 
-/** Room outside the last ring for its labels (or just the node circles when unlabelled). */
-const LABEL_MARGIN = 150
-const PLAIN_MARGIN = 46
+/** Room outside the last ring so its labels — every node is labelled — aren't clipped. */
+const LABEL_MARGIN = 190
 
 export function layoutRadial(graph: EgoGraph): RadialLayout {
   const root = graph.nodes.find(node => node.depth === 0)
@@ -112,11 +113,6 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
   // Start at 12 o'clock (SVG y grows downward, so -π/2 is up).
   assignSectors(rootId, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2, children, weight, angles)
 
-  const labelled: boolean[] = []
-  for (let depth = 1; depth <= maxDepth; depth++) {
-    labelled[depth] = (2 * Math.PI * radii[depth]) / perRing[depth] >= LABEL_ARC
-  }
-
   const nodes: PositionedNode[] = graph.nodes.map(node => {
     const id = node.object.elementId
     const angle = angles.get(id) ?? 0
@@ -132,7 +128,8 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
         node.depth === 0
           ? ROOT_RADIUS
           : Math.min(MIN_NODE_RADIUS + Math.sqrt(links) * 1.6, MAX_NODE_RADIUS),
-      showLabel: node.depth === 0 || labelled[node.depth] === true,
+      // Every node is labelled — the crowded-ring suppression is gone, names always render.
+      showLabel: true,
     }
   })
 
@@ -146,7 +143,7 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
   }
 
   const outer = radii[maxDepth] ?? 0
-  const extent = outer + (labelled[maxDepth] ? LABEL_MARGIN : PLAIN_MARGIN)
+  const extent = outer + LABEL_MARGIN
 
   return { nodes, edges, extent: Math.max(extent, FIRST_RING) }
 }
