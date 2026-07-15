@@ -5,7 +5,7 @@ import { useExplorerStore } from '../../stores/explorer'
 import { Chevron } from '../common/Chevron'
 import { BUCKET_COLOR, bucketOf, type RelationshipBucket } from './relationshipColors'
 import { directNeighbors, type Neighbor } from './egoGraph'
-import { ELEMENT_DRAG_TYPE } from './RelationshipGraph'
+import { ELEMENT_DRAG_TYPE } from './dragType'
 
 /** Rows revealed per "show more" click. A composition parent can have thousands of children. */
 const PAGE_SIZE = 50
@@ -112,7 +112,7 @@ export function DirectRelationships({
     <div className="flex flex-col h-full min-h-0">
       <p className="mb-2 shrink-0 text-[11px] text-i3x-text-muted">
         {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag a row
-        onto the tree to root it there
+        onto the map to focus it there
       </p>
 
       {/* Fills the pane and scrolls in place, so a hub with thousands of children
@@ -232,7 +232,7 @@ function Row({
       <span
         aria-hidden="true"
         className="pl-1.5 text-[11px] leading-none text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
-        title="Drag onto the tree to root it here"
+        title="Drag onto the map to focus it here"
       >
         ⠿
       </span>
@@ -252,8 +252,8 @@ function Row({
       <button
         type="button"
         onClick={() => onFocus(object)}
-        aria-label={`Root the tree at ${object.displayName}`}
-        title="Root the tree here"
+        aria-label={`Focus the map on ${object.displayName}`}
+        title="Focus the map here"
         className="mr-1 w-6 h-6 grid place-items-center rounded-md text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-i3x-surface hover:text-i3x-primary transition-opacity motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         ◎

@@ -3,13 +3,19 @@ import type { ObjectInstance } from '../../../api/types'
 import {
   MAX_RELATIONSHIP_DEPTH,
   MIN_RELATIONSHIP_DEPTH,
+  type RelationshipView,
   useExplorerStore,
 } from '../../../stores/explorer'
 import { DirectRelationships } from '../../graph/DirectRelationships'
 import { RelationshipGraph } from '../../graph/RelationshipGraph'
 import { RelationshipLegend } from '../../graph/RelationshipLegend'
-import { Card } from '../primitives'
+import { Card, SegmentedControl } from '../primitives'
 import { useElementNavigation } from '../navigation'
+
+const VIEW_OPTIONS: { value: RelationshipView; label: string }[] = [
+  { value: 'tree', label: 'Tree' },
+  { value: 'radial', label: 'Rings' },
+]
 
 /**
  * One panel, two views of the same thing, laid out like a Fusion 360 workspace:
@@ -28,6 +34,8 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const objectIndex = useExplorerStore(state => state.objectIndex)
   const depth = useExplorerStore(state => state.relationshipDepth)
   const setDepth = useExplorerStore(state => state.setRelationshipDepth)
+  const view = useExplorerStore(state => state.relationshipView)
+  const setView = useExplorerStore(state => state.setRelationshipView)
   const { selectElement, selectObject } = useElementNavigation()
 
   // What the tree is rooted on. null = the selected element itself; anything else
@@ -85,6 +93,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
               Back to {object.displayName}
             </button>
           )}
+          <SegmentedControl label="Relationship view" value={view} options={VIEW_OPTIONS} onChange={setView} />
           <span className="text-[11px] text-i3x-text-muted normal-case tracking-normal">Depth</span>
           <DepthControl value={depth} onChange={setDepth} />
         </div>
@@ -116,7 +125,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
       </div>
 
       <p className="mt-3 shrink-0 text-[11.5px] text-i3x-text-muted">
-        Hover a row to spotlight it on the tree · drag a row onto the tree to root it there · drag to
+        Hover a row to spotlight it on the map · drag a row onto the map to focus it there · drag to
         pan · scroll to zoom · click a node to open it
       </p>
 
