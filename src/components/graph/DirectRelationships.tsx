@@ -40,7 +40,7 @@ export function groupByRelationship(neighbors: Neighbor[]): RelationshipGroup[] 
  * and everything else (Monitors, InheritsFrom, and so on) in one place, so a
  * single view answers "what is this connected to?".
  *
- * Rows are draggable onto the relationship map, which re-centers it on the
+ * Rows are draggable onto the relationship tree, which re-roots it on the
  * dropped element. The ◎ button does the same thing for keyboard users and for
  * anyone who doesn't discover the drag.
  */
@@ -52,7 +52,7 @@ export function DirectRelationships({
 }: {
   element: ObjectInstance
   onSelect: (object: ObjectInstance) => void
-  /** Center the relationship map on this object, without navigating to it. */
+  /** Root the relationship tree on this object, without navigating to it. */
   onFocus: (object: ObjectInstance) => void
   /** Row hovered or left. The map highlights that element as if hovered there. */
   onHover?: (elementId: string | null) => void
@@ -112,7 +112,7 @@ export function DirectRelationships({
     <div className="flex flex-col h-full min-h-0">
       <p className="mb-2 shrink-0 text-[11px] text-i3x-text-muted">
         {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag a row
-        onto the map to center it there
+        onto the tree to root it there
       </p>
 
       {/* Fills the pane and scrolls in place, so a hub with thousands of children
@@ -232,7 +232,7 @@ function Row({
       <span
         aria-hidden="true"
         className="pl-1.5 text-[11px] leading-none text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
-        title="Drag onto the map to center it here"
+        title="Drag onto the tree to root it here"
       >
         ⠿
       </span>
@@ -252,8 +252,8 @@ function Row({
       <button
         type="button"
         onClick={() => onFocus(object)}
-        aria-label={`Center the map on ${object.displayName}`}
-        title="Center the map here"
+        aria-label={`Root the tree at ${object.displayName}`}
+        title="Root the tree here"
         className="mr-1 w-6 h-6 grid place-items-center rounded-md text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-i3x-surface hover:text-i3x-primary transition-opacity motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         ◎
