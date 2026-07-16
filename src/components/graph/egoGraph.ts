@@ -157,7 +157,13 @@ async function fetchFrontier(
 }
 
 /**
- * Walk `depth` hops out from `root`.
+ * Walk `depth` hops out from `root`, downward.
+ *
+ * The root shows all its direct relationships (its parent, its children, and any
+ * other links). Past the root the walk only ever descends — it follows child
+ * edges and nothing else — so the parent is shown one level up and never expanded:
+ * no grandparents and no siblings. To see further up, root the map on the parent
+ * and drill down from there.
  *
  * `cancelled` is checked after every level so a depth change or a navigation
  * mid-walk abandons the remaining round trips rather than resolving into a
@@ -187,6 +193,9 @@ export async function expandEgoGraph({
     if (cancelled()) break
 
     const next: ObjectInstance[] = []
+    // The root (level 1) fans out to all its direct relationships; past it we only
+    // ever descend.
+    const fromRoot = level === 1
 
     for (const source of frontier) {
       const neighbors = directNeighbors(source, related.get(source.elementId) ?? [], store)
@@ -194,6 +203,10 @@ export async function expandEgoGraph({
       for (const neighbor of neighbors) {
         const id = neighbor.object.elementId
         const bucket = bucketOf(neighbor.relationshipType)
+        const downstream = bucket === 'child'
+
+        // Beyond the root, follow child edges only: no going back up, no siblings.
+        if (!fromRoot && !downstream) continue
 
         if (!nodes.has(id)) {
           nodes.set(id, {
@@ -202,7 +215,10 @@ export async function expandEgoGraph({
             via: source.elementId,
             viaBucket: bucket,
           })
-          next.push(neighbor.object)
+          // Only downstream nodes expand further, so the parent (and any
+          // non-hierarchy links off the root) are shown once and left as leaves —
+          // 1 up and root, then children, grandchildren, and so on.
+          if (downstream) next.push(neighbor.object)
         }
 
         const key = edgeKey(source.elementId, id, bucket)
