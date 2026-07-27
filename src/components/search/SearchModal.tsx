@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
 import { getClient } from '../../api/client'
+import { isScalarSchemaType } from '../tree/treeData'
+import { SearchIcon, CloseIcon, CubeIcon, ActivityIcon } from '../common/icons'
 import type { ObjectInstance } from '../../api/types'
 
 interface SearchResult {
@@ -39,14 +41,12 @@ export function SearchModal({ onClose }: SearchModalProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const { selectItem, setAllObjects, setHierarchicalRoots, objectTypes } = useExplorerStore()
-  const typeIndex = useMemo(() => new Map(objectTypes.map(t => [t.elementId, t])), [objectTypes])
-  const SCALAR_TYPES = useMemo(() => new Set(['number', 'integer', 'string', 'boolean']), [])
-  const isLeafType = (typeId: string) => {
-    const raw = typeIndex.get(typeId)?.schema?.type
-    const t = Array.isArray(raw) ? (raw as string[]).find(x => SCALAR_TYPES.has(x)) ?? '' : String(raw ?? '')
-    return SCALAR_TYPES.has(t)
-  }
+  const { selectItem, setAllObjects, setHierarchicalRoots } = useExplorerStore()
+  // Same signal the tree row icons use (shared helper + store-maintained
+  // index), so a result's icon always matches its icon in the tree.
+  const typeIndex = useExplorerStore(s => s.typeIndex)
+  const isLeafType = (typeId: string) =>
+    isScalarSchemaType(typeIndex.get(typeId)?.schema?.type)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -195,7 +195,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-i3x-border">
-          <span className="text-i3x-text-muted text-base flex-shrink-0">🔍</span>
+          <SearchIcon size={16} className="text-i3x-text-muted flex-shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -209,9 +209,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
           )}
           <button
             onClick={onClose}
-            className="text-i3x-text-muted hover:text-i3x-text text-xl leading-none flex-shrink-0"
+            aria-label="Close search"
+            className="text-i3x-text-muted hover:text-i3x-text flex-shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
           >
-            ×
+            <CloseIcon size={14} />
           </button>
         </div>
 
@@ -230,8 +231,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
                     i === activeIndex ? 'bg-i3x-bg' : ''
                   }`}
                 >
-                  <span className="text-base flex-shrink-0 mt-0.5">
-                    {isLeafType(result.object.typeId) ? '📊' : '📦'}
+                  <span className="flex-shrink-0 mt-0.5 flex items-center">
+                    {isLeafType(result.object.typeId)
+                      ? <ActivityIcon size={16} className="text-i3x-violet" />
+                      : <CubeIcon size={16} className="text-i3x-secondary" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

@@ -7,16 +7,19 @@ import { Breadcrumb } from './Breadcrumb'
 import { OverviewTab } from './tabs/OverviewTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
 import { HistoryTab } from './tabs/HistoryTab'
+import { SubtreeTab } from './tabs/SubtreeTab'
+import { BroadcastIcon } from '../common/icons'
 
 // Subscriptions are deliberately absent: they're global state, not a property of
 // whichever element happens to be selected, so they live in the bottom drawer.
-type TabId = 'overview' | 'relationships' | 'history'
+type TabId = 'overview' | 'relationships' | 'history' | 'subtree'
 
-const TAB_ORDER: TabId[] = ['overview', 'relationships', 'history']
+const TAB_ORDER: TabId[] = ['overview', 'relationships', 'history', 'subtree']
 const TAB_LABELS: Record<TabId, string> = {
   overview: 'Overview',
   relationships: 'Relationships',
   history: 'History',
+  subtree: 'Subtree',
 }
 
 /**
@@ -25,7 +28,21 @@ const TAB_LABELS: Record<TabId, string> = {
  * presentational consumers of that state.
  */
 export function ObjectDetailView({ object }: { object: ObjectInstance }) {
-  const [activeTab, setActiveTab] = useState<TabId>('overview')
+  // Honor a pending tab deep-link (tree context menu "Open Relationships"
+  // etc.) from the first frame; the effect below covers the same-element case
+  // (no remount) and clears the request either way.
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const pending = useExplorerStore.getState().pendingDetailTab
+    return pending && (TAB_ORDER as readonly string[]).includes(pending)
+      ? (pending as TabId)
+      : 'overview'
+  })
+  const pendingTab = useExplorerStore(s => s.pendingDetailTab)
+  useEffect(() => {
+    if (!pendingTab) return
+    if ((TAB_ORDER as readonly string[]).includes(pendingTab)) setActiveTab(pendingTab as TabId)
+    useExplorerStore.getState().requestDetailTab(null)
+  }, [pendingTab])
 
   const [value, setValue] = useState<LastKnownValue | null>(null)
   const [isLoadingValue, setIsLoadingValue] = useState(false)
@@ -149,7 +166,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
               disabled={isSubscribing}
               className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-i3x-primary rounded-lg hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
             >
-              {isSubscribing ? 'Subscribing…' : <><span aria-hidden="true">◉</span> Subscribe</>}
+              {isSubscribing ? 'Subscribing…' : <><BroadcastIcon size={13} /> Subscribe</>}
             </button>
           </div>
         </div>
@@ -169,11 +186,14 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
           id={`panel-${activeTab}`}
           aria-labelledby={`tab-${activeTab}`}
           tabIndex={0}
-          // Relationships is the Fusion-style workspace: it spans the whole window
-          // and fills the height, growing/shrinking with it, down to a 30rem floor
-          // (then the panel scrolls). The reading-width tabs stay capped at 960px.
+          // Relationships and Subtree are the full-window workspaces: they span
+          // the width and fill the height, growing/shrinking with it, down to a
+          // 30rem floor (then the panel scrolls). The reading-width tabs stay
+          // capped at 960px.
           className={`focus:outline-none ${
-            activeTab === 'relationships' ? 'h-full min-h-[30rem]' : 'max-w-[960px]'
+            activeTab === 'relationships' || activeTab === 'subtree'
+              ? 'h-full min-h-[30rem]'
+              : 'max-w-[960px]'
           }`}
         >
           {activeTab === 'overview' && (
@@ -189,6 +209,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
           )}
           {activeTab === 'relationships' && <RelationshipsTab object={object} />}
           {activeTab === 'history' && <HistoryTab object={object} />}
+          {activeTab === 'subtree' && <SubtreeTab object={object} />}
         </div>
       </div>
     </div>

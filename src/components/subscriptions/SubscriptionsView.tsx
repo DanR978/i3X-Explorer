@@ -3,6 +3,7 @@ import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionTransport } from './SubscriptionTransport'
 import { TrendView } from './TrendView'
 import { StatusFacets } from '../details/ElementStatus'
+import { CloseIcon } from '../common/icons'
 import type { ObjectInstance } from '../../api/types'
 
 /**
@@ -194,7 +195,7 @@ export function SubscriptionsView() {
                           title="Unsubscribe, wired in a follow-up"
                           className="text-i3x-text-muted disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          ✕
+                          <CloseIcon size={13} />
                         </button>
                       </td>
                     </tr>

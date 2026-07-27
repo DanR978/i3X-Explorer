@@ -7,6 +7,8 @@ import { COMPOSITION_DASH } from './relationshipColors'
 import { expandEgoGraph, type EgoGraph } from './egoGraph'
 import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
+import { FrameIcon } from '../common/icons'
+import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.35
 const MAX_SCALE = 20
@@ -25,6 +27,11 @@ export interface RadialGraphProps {
    * takes priority.
    */
   externalHoverId?: string | null
+  /**
+   * A search pick: centre the view on this node and zoom in. Ignored if the node
+   * isn't drawn; answered late if it arrives while the walk is still loading.
+   */
+  locate?: LocateRequest | null
 }
 
 /**
@@ -41,6 +48,7 @@ export function RadialGraph({
   onFocusElement,
   onSelectElement,
   externalHoverId,
+  locate,
 }: RadialGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -222,6 +230,20 @@ export function RadialGraph({
 
   const extent = layout?.extent ?? 200
 
+  // Locator: a search pick centres the view on that node and zooms in. The token
+  // ref means a request is answered exactly once — but late, if it lands while the
+  // walk is still loading, since nodeById refreshing re-runs the effect with the
+  // request still unhandled.
+  const handledLocateToken = useRef(0)
+  useEffect(() => {
+    if (!locate || locate.token === handledLocateToken.current) return
+    const node = nodeById.get(locate.elementId)
+    if (!node) return
+    handledLocateToken.current = locate.token
+    const scale = Math.min(MAX_SCALE, Math.max(1.8, (extent * 2) / 460))
+    setTransform({ scale, x: -node.x * scale, y: -node.y * scale })
+  }, [locate, nodeById, extent])
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div
@@ -333,7 +355,7 @@ export function RadialGraph({
               label="Reset view"
               onClick={() => setTransform({ scale: 1, x: 0, y: 0 })}
             >
-              ▢
+              <FrameIcon size={13} />
             </GraphButton>
           </div>
         )}

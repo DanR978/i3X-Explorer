@@ -7,6 +7,8 @@ import { COMPOSITION_DASH } from './relationshipColors'
 import { expandEgoGraph, type EgoGraph } from './egoGraph'
 import { COLUMN_WIDTH, layoutTree, MAX_LABEL_CHARS, type PositionedNode } from './treeLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
+import { FrameIcon } from '../common/icons'
+import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.2
 const MAX_SCALE = 20
@@ -30,8 +32,16 @@ export interface TreeGraphProps {
   /** The element at the root of the tree: the selected object, or whatever was dropped in. */
   root: ObjectInstance
   depth: number
-  /** Element dropped onto the canvas: re-root here without navigating away. */
-  onFocusElement: (elementId: string) => void
+  /**
+   * Walk child edges only, from the very first hop: the pure subtree beneath the
+   * root — no parent leaf, no non-hierarchy links. The Subtree tab sets this.
+   */
+  descendantsOnly?: boolean
+  /**
+   * Element dropped onto the canvas: re-root here without navigating away.
+   * Omit to disable dropping (the Subtree tab has no drag source).
+   */
+  onFocusElement?: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
   /**
@@ -40,6 +50,11 @@ export interface TreeGraphProps {
    * takes priority.
    */
   externalHoverId?: string | null
+  /**
+   * A search pick: centre the view on this node and zoom in. Ignored if the node
+   * isn't drawn; answered late if it arrives while the walk is still loading.
+   */
+  locate?: LocateRequest | null
 }
 
 /**
@@ -55,9 +70,11 @@ export interface TreeGraphProps {
 export function TreeGraph({
   root,
   depth,
+  descendantsOnly = false,
   onFocusElement,
   onSelectElement,
   externalHoverId,
+  locate,
 }: TreeGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -93,6 +110,7 @@ export function TreeGraph({
       root,
       depth,
       store: storeRef.current,
+      descendantsOnly,
       cancelled: () => cancelled,
     })
       .then(result => {
@@ -110,7 +128,7 @@ export function TreeGraph({
     return () => {
       cancelled = true
     }
-  }, [root, depth])
+  }, [root, depth, descendantsOnly])
 
   const layout = useMemo(() => (graph ? layoutTree(graph) : null), [graph])
 
@@ -197,7 +215,7 @@ export function TreeGraph({
   }
 
   const carriesElement = (event: React.DragEvent) =>
-    event.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)
+    onFocusElement != null && event.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)
 
   const handleDragOver = (event: React.DragEvent) => {
     if (!carriesElement(event)) return
@@ -212,7 +230,7 @@ export function TreeGraph({
     event.preventDefault()
     setIsDropTarget(false)
     const elementId = event.dataTransfer.getData(ELEMENT_DRAG_TYPE)
-    if (elementId) onFocusElement(elementId)
+    if (elementId) onFocusElement?.(elementId)
   }
 
   // A row hovered in the list highlights here just like a map hover, but an actual
@@ -228,14 +246,35 @@ export function TreeGraph({
 
   // The initial view: the content box, clamped so a small tree isn't blown up and a
   // huge one isn't shrunk to nothing (you scroll instead). Centred on the content.
-  const left = (layout?.minX ?? 0) - LEFT_PAD
-  const right = (layout?.maxX ?? 0) + RIGHT_PAD
-  const top = (layout?.minY ?? 0) - V_PAD
-  const bottom = (layout?.maxY ?? 0) + V_PAD
-  const viewW = Math.max(right - left, MIN_VIEW_W)
-  const viewH = Math.max(bottom - top, MIN_VIEW_H)
-  const viewX = (left + right) / 2 - viewW / 2
-  const viewY = (top + bottom) / 2 - viewH / 2
+  const view = useMemo(() => {
+    const left = (layout?.minX ?? 0) - LEFT_PAD
+    const right = (layout?.maxX ?? 0) + RIGHT_PAD
+    const top = (layout?.minY ?? 0) - V_PAD
+    const bottom = (layout?.maxY ?? 0) + V_PAD
+    const w = Math.max(right - left, MIN_VIEW_W)
+    const h = Math.max(bottom - top, MIN_VIEW_H)
+    return { w, h, x: (left + right) / 2 - w / 2, y: (top + bottom) / 2 - h / 2 }
+  }, [layout])
+  const { w: viewW, h: viewH, x: viewX, y: viewY } = view
+
+  // Locator: a search pick centres the view on that node and zooms in enough to
+  // read its neighborhood (a couple of columns). The token ref means a request is
+  // answered exactly once — but late, if it lands while the walk is still loading,
+  // since nodeById refreshing re-runs the effect with the request still unhandled.
+  const handledLocateToken = useRef(0)
+  useEffect(() => {
+    if (!locate || locate.token === handledLocateToken.current) return
+    const node = nodeById.get(locate.elementId)
+    if (!node) return
+    handledLocateToken.current = locate.token
+    const scale = Math.min(MAX_SCALE, Math.max(1.6, view.w / 900))
+    setTransform({
+      scale,
+      // Bias half a label to the right of the node so the name is centred too.
+      x: view.x + view.w / 2 - (node.x + 60) * scale,
+      y: view.y + view.h / 2 - node.y * scale,
+    })
+  }, [locate, nodeById, view])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -257,9 +296,13 @@ export function TreeGraph({
           </Centered>
         ) : layout && layout.nodes.length <= 1 ? (
           <Centered>
-            <p className="text-sm text-i3x-text-muted">No relationships.</p>
+            <p className="text-sm text-i3x-text-muted">
+              {descendantsOnly ? 'No children.' : 'No relationships.'}
+            </p>
             <p className="text-xs text-i3x-text-muted/70 mt-1">
-              This element has no links to any other object.
+              {descendantsOnly
+                ? 'This element has nothing beneath it.'
+                : 'This element has no links to any other object.'}
             </p>
           </Centered>
         ) : (
@@ -276,7 +319,7 @@ export function TreeGraph({
               onPointerUp={endPan}
               onPointerCancel={endPan}
               role="img"
-              aria-label={`Relationship tree for ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
+              aria-label={`${descendantsOnly ? 'Subtree of' : 'Relationship tree for'} ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
             >
               <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.scale})`}>
                 {/* Column guides: one per generation. Negative is upstream
@@ -356,7 +399,7 @@ export function TreeGraph({
               label="Reset view"
               onClick={() => setTransform({ scale: 1, x: 0, y: 0 })}
             >
-              ▢
+              <FrameIcon size={13} />
             </GraphButton>
           </div>
         )}

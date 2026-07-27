@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { CloseIcon } from '../common/icons'
 
 /**
  * The "?" next to something that isn't self-explanatory.
@@ -82,7 +83,7 @@ export function InfoHint({
               onClick={() => setIsOpen(false)}
               className="text-i3x-text-muted hover:text-i3x-text leading-none rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
             >
-              ✕
+              <CloseIcon size={12} />
             </button>
           </span>
           <span className="block text-[11.5px] leading-relaxed text-i3x-text-muted normal-case tracking-normal font-normal">

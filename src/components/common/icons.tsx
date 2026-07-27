@@ -1,0 +1,272 @@
+import type { ReactNode } from 'react'
+
+/**
+ * The app's icon set. Every pictograph in the UI comes from here — stroke-based
+ * SVGs on `currentColor`, so icons inherit text color, scale crisply at any
+ * size, and render identically on every platform (the emoji they replaced
+ * varied wildly between macOS/Windows/Linux and were unreadable in dark mode).
+ *
+ * All icons share one 24×24 grid and one stroke weight, so mixed sizes still
+ * read as a family. Color belongs to the call site (`className="text-i3x-…"`),
+ * not the icon.
+ */
+
+export interface IconProps {
+  /** Rendered size in px (square). */
+  size?: number
+  className?: string
+  strokeWidth?: number
+}
+
+function Icon({
+  size = 16,
+  className = '',
+  strokeWidth = 1.8,
+  children,
+}: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 ${className}`}
+    >
+      {children}
+    </svg>
+  )
+}
+
+/* ── Tree entity icons ────────────────────────────────────────────────────── */
+
+/** Namespaces root folder: stacked layers. */
+export const LayersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 3 8l9 5 9-5-9-5z" />
+    <path d="m3 13 9 5 9-5" />
+  </Icon>
+)
+
+/** Objects root folder: a flat grid of instances. */
+export const GridIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" />
+  </Icon>
+)
+
+/** Hierarchy root folder: one parent fanned out to two children. */
+export const HierarchyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="5" r="2.4" />
+    <circle cx="5.5" cy="19" r="2.4" />
+    <circle cx="18.5" cy="19" r="2.4" />
+    <path d="M12 7.4v4.1M12 11.5H5.5v5.1M12 11.5h6.5v5.1" />
+  </Icon>
+)
+
+/** Namespace: globe. */
+export const GlobeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a13.5 13.5 0 0 1 3.5 9A13.5 13.5 0 0 1 12 21a13.5 13.5 0 0 1-3.5-9A13.5 13.5 0 0 1 12 3z" />
+  </Icon>
+)
+
+/** Object type: schema document. */
+export const FileTextIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M9 13h6M9 17h6" />
+  </Icon>
+)
+
+/** FolderType instances and type definitions. */
+export const FolderIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l2 2h8.8A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+  </Icon>
+)
+
+/** Object instance: package/cube. */
+export const CubeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 8.2a1.8 1.8 0 0 0-.9-1.56l-7.2-4.1a1.8 1.8 0 0 0-1.8 0l-7.2 4.1A1.8 1.8 0 0 0 3 8.2v7.6a1.8 1.8 0 0 0 .9 1.56l7.2 4.1a1.8 1.8 0 0 0 1.8 0l7.2-4.1a1.8 1.8 0 0 0 .9-1.56z" />
+    <path d="M3.3 7.3 12 12.2l8.7-4.9" />
+    <path d="M12 22v-9.8" />
+  </Icon>
+)
+
+/** Variable/value instance: live signal trace. */
+export const ActivityIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M22 12h-3.5L15 21 9 3l-3.5 9H2" />
+  </Icon>
+)
+
+/* ── General UI icons ─────────────────────────────────────────────────────── */
+
+export const SearchIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-4.8-4.8" />
+  </Icon>
+)
+
+export const CloseIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </Icon>
+)
+
+export const CheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m20 6.5-11 11L4 12.5" />
+  </Icon>
+)
+
+export const LockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4.5" y="11" width="15" height="9.5" rx="2" />
+    <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+  </Icon>
+)
+
+export const WarningIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9v4.5M12 17.2v.05" />
+  </Icon>
+)
+
+/** Update-available dialog: a little celebration without a platform emoji. */
+export const SparklesIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
+    <path d="m19 14.5.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+  </Icon>
+)
+
+/** Server redirected: corner-up-right arrow. */
+export const RedirectIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m15 14 5-5-5-5" />
+    <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
+  </Icon>
+)
+
+/** Unsupported/blocked: slashed circle. */
+export const BlockedIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M5.6 5.6l12.8 12.8" />
+  </Icon>
+)
+
+export const HomeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V21h14V9.5" />
+  </Icon>
+)
+
+/** Focus/re-root control: concentric target. */
+export const TargetIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="3.5" />
+  </Icon>
+)
+
+/** Subscribe: radio broadcast. */
+export const BroadcastIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    <path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
+    <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2" />
+  </Icon>
+)
+
+/** Fit/reset view: four frame corners. */
+export const FrameIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+    <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+  </Icon>
+)
+
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" />
+    <path d="M21 3v5h-5" />
+  </Icon>
+)
+
+/** Drag handle: 2×3 dot grip. */
+export const GripIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <g fill="currentColor" stroke="none">
+      <circle cx="9" cy="5.5" r="1.4" />
+      <circle cx="15" cy="5.5" r="1.4" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <circle cx="9" cy="18.5" r="1.4" />
+      <circle cx="15" cy="18.5" r="1.4" />
+    </g>
+  </Icon>
+)
+
+/** Collapse tree branches: chevrons folding toward the center. */
+export const CollapseAllIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m7 4.5 5 5 5-5" />
+    <path d="m7 19.5 5-5 5 5" />
+  </Icon>
+)
+
+/** Expand all branches: chevrons unfolding away from the center. */
+export const ExpandAllIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m7 9.5 5-5 5 5" />
+    <path d="m7 14.5 5 5 5-5" />
+  </Icon>
+)
+
+/** History: clock face. */
+export const ClockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3.5 2" />
+  </Icon>
+)
+
+/** Copy to clipboard: two offset sheets. */
+export const CopyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5" />
+  </Icon>
+)
+
+/** Truncated child list: horizontal ellipsis. */
+export const EllipsisIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <g fill="currentColor" stroke="none">
+      <circle cx="5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="19" cy="12" r="1.6" />
+    </g>
+  </Icon>
+)

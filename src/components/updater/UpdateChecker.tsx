@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { SparklesIcon } from '../common/icons'
 
 const GITHUB_API_URL = 'https://api.github.com/repos/ace-technologies-inc/i3X-Explorer/releases/latest'
 const GITHUB_RELEASES_URL = 'https://github.com/ace-technologies-inc/i3X-Explorer/releases'
@@ -35,7 +36,7 @@ export function UpdateChecker() {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
         <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
-          <span className="text-base">🎉</span>
+          <SparklesIcon size={17} className="text-i3x-primary" />
           <h2 className="text-sm font-semibold text-i3x-text">Update Available</h2>
         </div>
         <div className="p-4 space-y-2 text-sm text-i3x-text">

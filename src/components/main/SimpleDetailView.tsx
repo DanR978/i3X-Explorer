@@ -4,7 +4,7 @@ import { Breadcrumb } from './Breadcrumb'
 /**
  * Header shell for selections that have no ancestry and no tabs, namespaces and
  * object types. Keeps them inside the same navigation frame as element detail so
- * "⌂ Overview" is always reachable.
+ * the "Overview" home crumb is always reachable.
  */
 export function SimpleDetailView({
   label,
