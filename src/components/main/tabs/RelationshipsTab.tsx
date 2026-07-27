@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../../api/types'
-import {
-  MAX_RELATIONSHIP_DEPTH,
-  MIN_RELATIONSHIP_DEPTH,
-  type RelationshipView,
-  useExplorerStore,
-} from '../../../stores/explorer'
+import { type RelationshipView, useExplorerStore } from '../../../stores/explorer'
 import { DirectRelationships } from '../../graph/DirectRelationships'
+import type { Neighbor } from '../../graph/egoGraph'
+import type { LocateRequest } from '../../graph/locator'
 import { RelationshipGraph } from '../../graph/RelationshipGraph'
 import { RelationshipLegend } from '../../graph/RelationshipLegend'
+import { RelationshipSearch } from '../../graph/RelationshipSearch'
 import { Card, SegmentedControl } from '../primitives'
 import { useElementNavigation } from '../navigation'
+import { DepthControl } from './DepthControl'
 
 const VIEW_OPTIONS: { value: RelationshipView; label: string }[] = [
   { value: 'tree', label: 'Tree' },
@@ -46,15 +45,43 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   // The element hovered in the list. The tree highlights it as if hovered there.
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
+  // Header search. The text filters the list; picking a suggestion spotlights the
+  // node on the map and asks the map to zoom to it (the LocateRequest).
+  const [query, setQuery] = useState('')
+  const [neighbors, setNeighbors] = useState<Neighbor[]>([])
+  const [spotlightId, setSpotlightId] = useState<string | null>(null)
+  const [locate, setLocate] = useState<LocateRequest | null>(null)
+  const locateToken = useRef(0)
+
   // Selecting a different element resets the tree back to it. (MainPanel re-keys
   // this view per element, so this only fires if that ever stops being true.)
   useEffect(() => {
     setFocused(null)
     setHoveredId(null)
+    setQuery('')
   }, [object.elementId])
 
   const root = focused ?? object
   const isRefocused = root.elementId !== object.elementId
+
+  // A new root is a new picture (and a reset transform), so a lingering
+  // spotlight or zoom request there would be stale.
+  useEffect(() => {
+    setSpotlightId(null)
+    setLocate(null)
+  }, [root.elementId])
+
+  const handleQueryChange = useCallback((text: string) => {
+    setQuery(text)
+    // Typing again (or clearing) withdraws the locator until the next pick.
+    setSpotlightId(null)
+  }, [])
+
+  const handleLocate = useCallback((elementId: string) => {
+    setSpotlightId(elementId)
+    locateToken.current += 1
+    setLocate({ elementId, token: locateToken.current })
+  }, [])
 
   const focusObject = useCallback(
     (target: ObjectInstance) =>
@@ -64,7 +91,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
 
   // A drop only carries the elementId across the DOM, so it is resolved against
   // the catalog. A related object the store has never seen can't be rooted this
-  // way. The ◎ button on each row hands over the whole object and always can.
+  // way. The target button on each row hands over the whole object and always can.
   const focusElementId = (elementId: string) => {
     const target = objectIndex.get(elementId)
     if (target) focusObject(target)
@@ -93,6 +120,12 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
               Back to {object.displayName}
             </button>
           )}
+          <RelationshipSearch
+            neighbors={neighbors}
+            query={query}
+            onQueryChange={handleQueryChange}
+            onLocate={handleLocate}
+          />
           <SegmentedControl label="Relationship view" value={view} options={VIEW_OPTIONS} onChange={setView} />
           <span className="text-[11px] text-i3x-text-muted normal-case tracking-normal">Depth</span>
           <DepthControl value={depth} onChange={setDepth} />
@@ -110,6 +143,8 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
             onSelect={selectObject}
             onFocus={focusObject}
             onHover={setHoveredId}
+            filter={query}
+            onNeighbors={setNeighbors}
           />
         </div>
 
@@ -119,14 +154,16 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
             depth={depth}
             onFocusElement={focusElementId}
             onSelectElement={selectElement}
-            externalHoverId={hoveredId}
+            externalHoverId={hoveredId ?? spotlightId}
+            locate={locate}
           />
         </div>
       </div>
 
       <p className="mt-3 shrink-0 text-[11.5px] text-i3x-text-muted">
-        Hover a row to spotlight it on the map · drag a row onto the map to focus it there · drag to
-        pan · scroll to zoom · click a node to open it
+        Hover a row to spotlight it on the map · drag a row onto the map to focus it there · search
+        to filter the list and zoom to a match · drag to pan · scroll to zoom · click a node to
+        open it
       </p>
 
       {/* The key sits below the split, not inside the drawing, so it can never
@@ -136,65 +173,5 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
         className="mt-3 shrink-0"
       />
     </Card>
-  )
-}
-
-/**
- * Depth picker: a pill per hop from MIN up to however many have been revealed,
- * then a "+" that reveals one more. The revealed count is session state in the
- * store, so the extra pills stay put when you switch between elements.
- */
-function DepthControl({
-  value,
-  onChange,
-}: {
-  value: number
-  onChange: (depth: number) => void
-}) {
-  const revealed = useExplorerStore(state => state.relationshipDepthShown)
-  const reveal = useExplorerStore(state => state.revealRelationshipDepth)
-
-  // Always show at least up to the current depth, so the active pill can't vanish.
-  const shown = Math.max(revealed, value)
-  const depths = Array.from(
-    { length: shown - MIN_RELATIONSHIP_DEPTH + 1 },
-    (_, index) => MIN_RELATIONSHIP_DEPTH + index
-  )
-
-  const pill =
-    'px-3 py-1 text-[11.5px] rounded-md transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary'
-  const active = 'bg-i3x-surface text-i3x-primary font-medium shadow-sm'
-  const inactive = 'text-i3x-text-muted hover:text-i3x-text'
-
-  return (
-    <div
-      role="group"
-      aria-label="Relationship depth in hops"
-      className="flex items-center gap-0.5 bg-i3x-bg border border-i3x-border rounded-lg p-0.5"
-    >
-      {depths.map(depth => (
-        <button
-          key={depth}
-          type="button"
-          aria-pressed={value === depth}
-          onClick={() => onChange(depth)}
-          className={`${pill} ${value === depth ? active : inactive}`}
-        >
-          {depth}
-        </button>
-      ))}
-
-      {shown < MAX_RELATIONSHIP_DEPTH && (
-        <button
-          type="button"
-          aria-label="Reveal a deeper depth"
-          title="Add a deeper depth"
-          onClick={reveal}
-          className={`${pill} ${inactive}`}
-        >
-          +
-        </button>
-      )}
-    </div>
   )
 }

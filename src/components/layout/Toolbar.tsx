@@ -4,6 +4,7 @@ import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { createClient, destroyClient, getClient } from '../../api/client'
 import { SearchModal } from '../search/SearchModal'
+import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon } from '../common/icons'
 import iconPng from '/icon.png'
 
 type Theme = 'light' | 'dark'
@@ -267,7 +268,7 @@ export function Toolbar() {
           aria-label="Search objects"
           className="px-3 py-1.5 text-xs bg-i3x-bg rounded border border-i3x-border hover:border-i3x-primary transition-colors motion-reduce:transition-none disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
         >
-          <span aria-hidden="true">🔍</span>
+          <SearchIcon size={13} className="text-i3x-text-muted" />
           <span className="hidden sm:inline">Search</span>
         </button>
       </div>
@@ -300,7 +301,7 @@ export function Toolbar() {
                     }`}
                   >
                     {opt.label}
-                    {pollIntervalMs === opt.ms && <span>✓</span>}
+                    {pollIntervalMs === opt.ms && <CheckIcon size={13} />}
                   </button>
                 ))}
                 <div className="border-t border-i3x-border my-1" />
@@ -354,7 +355,7 @@ export function Toolbar() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
             <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
-              <span className="text-i3x-warning text-base">↪️</span>
+              <RedirectIcon size={17} className="text-i3x-warning" />
               <h2 className="text-sm font-semibold text-i3x-text">Server Redirected</h2>
             </div>
             <div className="p-4 space-y-3 text-sm text-i3x-text">
@@ -385,7 +386,7 @@ export function Toolbar() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
             <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
-              <span className="text-i3x-error text-base">🚫</span>
+              <BlockedIcon size={17} className="text-i3x-error" />
               <h2 className="text-sm font-semibold text-i3x-text">Unsupported API Version</h2>
             </div>
             <div className="p-4 space-y-3 text-sm text-i3x-text">

@@ -1,6 +1,7 @@
 import type { LastKnownValue } from '../../api/types'
 import { JsonViewer } from './JsonViewer'
 import { StatusFacets } from './ElementStatus'
+import { WarningIcon } from '../common/icons'
 
 interface ValueDisplayProps {
   value: LastKnownValue
@@ -61,8 +62,9 @@ export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
     return (
       <div className="bg-i3x-bg border border-i3x-border rounded-lg overflow-hidden">
         {value.partialDetail && (
-          <div className="px-3 py-1.5 bg-i3x-warning/10 border-b border-i3x-warning/20 text-xs text-i3x-warning">
-            ⚠ Partial result: {value.partialDetail}
+          <div className="px-3 py-1.5 bg-i3x-warning/10 border-b border-i3x-warning/20 text-xs text-i3x-warning flex items-center gap-1.5">
+            <WarningIcon size={12} />
+            <span>Partial result: {value.partialDetail}</span>
           </div>
         )}
         <div className="p-3">
@@ -76,8 +78,9 @@ export function ValueDisplay({ value, view = 'parsed' }: ValueDisplayProps) {
     <div className="bg-i3x-bg border border-i3x-border rounded-lg overflow-hidden">
       {/* 1.0: HTTP 206, a server-imposed limit truncated the composition tree */}
       {value.partialDetail && (
-        <div className="px-3 py-1.5 bg-i3x-warning/10 border-b border-i3x-warning/20 text-xs text-i3x-warning">
-          ⚠ Partial result: {value.partialDetail}
+        <div className="px-3 py-1.5 bg-i3x-warning/10 border-b border-i3x-warning/20 text-xs text-i3x-warning flex items-center gap-1.5">
+          <WarningIcon size={12} />
+          <span>Partial result: {value.partialDetail}</span>
         </div>
       )}
 

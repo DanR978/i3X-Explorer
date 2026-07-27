@@ -2,6 +2,7 @@ import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { getClient } from '../../api/client'
+import { LockIcon, WarningIcon } from '../common/icons'
 
 /**
  * The bottom status strip. Everything here used to be crammed into the toolbar's
@@ -49,7 +50,11 @@ export function StatusBar() {
           {statusLabel}
           {apiVersion && ` · ${apiVersion === 'v1-beta' ? 'v1 Beta' : apiVersion}`}
         </span>
-        {isConnected && credentials && <span title="Authenticated connection">🔒</span>}
+        {isConnected && credentials && (
+          <span title="Authenticated connection" className="flex items-center">
+            <LockIcon size={12} />
+          </span>
+        )}
       </div>
 
       {serverUrl && (
@@ -79,8 +84,9 @@ export function StatusBar() {
       </button>
 
       {error && (
-        <div className="flex items-center px-3 border-r border-i3x-border text-i3x-error min-w-0">
-          <span className="truncate max-w-[28rem]" title={error}>⚠ {error}</span>
+        <div className="flex items-center gap-1.5 px-3 border-r border-i3x-border text-i3x-error min-w-0">
+          <WarningIcon size={12} />
+          <span className="truncate max-w-[28rem]" title={error}>{error}</span>
         </div>
       )}
 

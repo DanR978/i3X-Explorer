@@ -165,6 +165,10 @@ async function fetchFrontier(
  * no grandparents and no siblings. To see further up, root the map on the parent
  * and drill down from there.
  *
+ * With `descendantsOnly` the root gets no special treatment either: child edges
+ * from the very first hop, so the result is the pure subtree beneath the root —
+ * no parent, no non-hierarchy links. This is what the Subtree tab draws.
+ *
  * `cancelled` is checked after every level so a depth change or a navigation
  * mid-walk abandons the remaining round trips rather than resolving into a
  * component that has moved on.
@@ -174,12 +178,14 @@ export async function expandEgoGraph({
   root,
   depth,
   store,
+  descendantsOnly = false,
   cancelled = () => false,
 }: {
   client: I3XClient
   root: ObjectInstance
   depth: number
   store: StoreView
+  descendantsOnly?: boolean
   cancelled?: () => boolean
 }): Promise<EgoGraph> {
   const nodes = new Map<string, EgoNode>([[root.elementId, { object: root, depth: 0 }]])
@@ -194,8 +200,8 @@ export async function expandEgoGraph({
 
     const next: ObjectInstance[] = []
     // The root (level 1) fans out to all its direct relationships; past it we only
-    // ever descend.
-    const fromRoot = level === 1
+    // ever descend. A descendants-only walk descends from the start.
+    const fromRoot = level === 1 && !descendantsOnly
 
     for (const source of frontier) {
       const neighbors = directNeighbors(source, related.get(source.elementId) ?? [], store)

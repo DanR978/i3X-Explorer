@@ -22,12 +22,27 @@ export interface SelectedItem {
 // Bounded so a long browsing session can't grow the stack without limit.
 const MAX_HISTORY = 50
 
+// A parent with more children than this shows the first page plus a
+// "Show more" row instead of dumping everything at once. Virtualization keeps
+// rendering cheap regardless, this cap is about the *user*: 20k siblings under
+// one node bury its siblings and make scrolling past it a chore. The flat
+// Objects folder is exempt (browsing everything is its whole point).
+export const CHILD_PAGE_SIZE = 200
+// Don't bother truncating for a trivial overflow, a "Show 12 more" row costs
+// more attention than the 12 rows it hides.
+export const CHILD_PAGE_SLACK = 50
+
 // Hops the Relationships map walks out from the selected element. The default is
 // one hop (just the direct relationships); deeper walks are opt-in. The ceiling
 // caps the round trips a deep custom walk can fire (one per hop) on a deeply-linked model.
 export const MIN_RELATIONSHIP_DEPTH = 1
 export const MAX_RELATIONSHIP_DEPTH = 10
 export const DEFAULT_RELATIONSHIP_DEPTH = 1
+
+// Hops the Subtree tab walks DOWN from the selected element. Deeper than the
+// Relationships default: the tab exists for deeply nested models, and a
+// descendants-only walk stays narrow enough to afford the extra round trips.
+export const DEFAULT_SUBTREE_DEPTH = 3
 
 // The depth picker shows pills 1..N; "+" reveals one deeper per click, up to the
 // ceiling. N lives in the store so the revealed pills persist across element
@@ -99,11 +114,26 @@ interface ExplorerState {
   // (breadcrumb, back/forward, search results) used to call allObjects.find per
   // level, making each walk O(depth × n). With this they are O(depth).
   objectIndex: Map<string, ObjectInstance>
+  // elementId → pre-lowercased "name\0elementId\0namespaceUri" blob, rebuilt
+  // with allObjects. The tree filter runs per keystroke over the whole catalog;
+  // one prebuilt blob turns 3 toLowerCase calls per object per keystroke into a
+  // single .includes(). Objects fetched outside allObjects fall back inline.
+  searchIndex: Map<string, string>
   expandedNodes: Set<string>
+  // Node id → how many children are currently revealed for parents whose child
+  // list is paged (see CHILD_PAGE_SIZE). Absent = first page. Infinity = all.
+  childPageLimits: Map<string, number>
+  // One-shot deep link into the detail view's tab strip ('relationships',
+  // 'subtree', 'history'), set by tree context-menu actions right before
+  // selectItem and consumed (cleared) by ObjectDetailView. A store field
+  // because the tab state itself is local to the detail view and re-keyed
+  // per element.
+  pendingDetailTab: string | null
   selectedItem: SelectedItem | null
-  // Visited selections, oldest first. historyIndex is the cursor into it, or -1
-  // when nothing has been selected yet.
-  history: SelectedItem[]
+  // Visited selections, oldest first; null is the Home/overview screen, which is
+  // a real navigation stop — Back must land on it, not skip over it. The stack
+  // starts seeded with Home, and historyIndex is the cursor into it.
+  history: (SelectedItem | null)[]
   historyIndex: number
   isLoading: boolean
   searchQuery: string
@@ -115,9 +145,14 @@ interface ExplorerState {
   // tab-local state would snap back to the default on every selection.
   relationshipDepth: number
   // Highest depth pill the picker currently shows (1..this). "+" bumps it.
+  // Shared by the Relationships and Subtree pickers: revealing a deeper pill is
+  // a session-level "I go deep here" signal, not a per-tab one.
   relationshipDepthShown: number
   // Which view the Relationships map draws: 'tree' or 'radial'.
   relationshipView: RelationshipView
+  // How many hops the Subtree tab walks down from the selected element. Same
+  // reason as relationshipDepth for living here rather than in the tab.
+  subtreeDepth: number
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
@@ -129,6 +164,9 @@ interface ExplorerState {
   toggleNode: (nodeId: string) => void
   expandNode: (nodeId: string) => void
   collapseNode: (nodeId: string) => void
+  raiseChildLimit: (nodeId: string, by: number) => void
+  showAllChildren: (nodeId: string) => void
+  requestDetailTab: (tab: string | null) => void
   selectItem: (item: SelectedItem | null) => void
   goBack: () => void
   goForward: () => void
@@ -140,6 +178,7 @@ interface ExplorerState {
   setRelationshipDepth: (depth: number) => void
   revealRelationshipDepth: () => void
   setRelationshipView: (view: RelationshipView) => void
+  setSubtreeDepth: (depth: number) => void
   reset: () => void
 }
 
@@ -154,10 +193,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   typeIndex: new Map(),
   childrenByParent: new Map(),
   objectIndex: new Map(),
+  searchIndex: new Map(),
   expandedNodes: new Set(),
+  childPageLimits: new Map(),
+  pendingDetailTab: null,
   selectedItem: null,
-  history: [],
-  historyIndex: -1,
+  history: [null],
+  historyIndex: 0,
   isLoading: false,
   searchQuery: '',
   pollIntervalMs: 30_000,
@@ -166,6 +208,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   relationshipDepth: DEFAULT_RELATIONSHIP_DEPTH,
   relationshipDepthShown: INITIAL_RELATIONSHIP_DEPTH_PILLS,
   relationshipView: 'tree',
+  subtreeDepth: DEFAULT_SUBTREE_DEPTH,
 
   setNamespaces: (namespaces) => set({ namespaces }),
   setObjectTypes: (types) => set({
@@ -184,17 +227,21 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     // Index children by parentId and objects by elementId once here, so the
     // hierarchy view resolves a node's children, and ancestor walks resolve a
     // parent, with a single Map lookup instead of scanning the whole list.
+    // The filter blob is built here too: pay the lowercasing once per fetch,
+    // not three times per object per filter keystroke.
     const childrenByParent = new Map<string, ObjectInstance[]>()
     const objectIndex = new Map<string, ObjectInstance>()
+    const searchIndex = new Map<string, string>()
     for (const o of objects) {
       objectIndex.set(o.elementId, o)
+      searchIndex.set(o.elementId, `${o.displayName} ${o.elementId} ${o.namespaceUri}`.toLowerCase())
       const pid = o.parentId
       if (!pid) continue
       const arr = childrenByParent.get(pid)
       if (arr) arr.push(o)
       else childrenByParent.set(pid, [o])
     }
-    set({ allObjects: objects, childrenByParent, objectIndex })
+    set({ allObjects: objects, childrenByParent, objectIndex, searchIndex })
   },
   setHierarchicalRoots: (roots) => set({ hierarchicalRoots: roots }),
 
@@ -213,10 +260,18 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   toggleNode: (nodeId) => {
-    const { expandedNodes } = get()
+    const { expandedNodes, childPageLimits } = get()
     const updated = new Set(expandedNodes)
     if (updated.has(nodeId)) {
       updated.delete(nodeId)
+      // Collapsing resets the paging for that parent: re-expanding starts back
+      // at the first page rather than a stale multi-thousand-row reveal.
+      if (childPageLimits.has(nodeId)) {
+        const limits = new Map(childPageLimits)
+        limits.delete(nodeId)
+        set({ expandedNodes: updated, childPageLimits: limits })
+        return
+      }
     } else {
       updated.add(nodeId)
     }
@@ -237,15 +292,28 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ expandedNodes: updated })
   },
 
+  raiseChildLimit: (nodeId, by) => {
+    const limits = new Map(get().childPageLimits)
+    limits.set(nodeId, (limits.get(nodeId) ?? CHILD_PAGE_SIZE) + by)
+    set({ childPageLimits: limits })
+  },
+
+  showAllChildren: (nodeId) => {
+    const limits = new Map(get().childPageLimits)
+    limits.set(nodeId, Infinity)
+    set({ childPageLimits: limits })
+  },
+
+  requestDetailTab: (tab) => set({ pendingDetailTab: tab }),
+
   selectItem: (item) => {
-    if (!item) {
-      set({ selectedItem: item })
-      return
-    }
     const { history, historyIndex } = get()
-    // Re-selecting the current node (clicking an already-selected row) must not
-    // add a second entry, but still refreshes selectedItem with the newer data.
-    if (historyIndex >= 0 && history[historyIndex].id === item.id) {
+    // Re-selecting the current stop (clicking an already-selected row, or Home
+    // while on Home) must not add a second entry, but still refreshes
+    // selectedItem with the newer data.
+    const current = historyIndex >= 0 ? history[historyIndex] : undefined
+    const sameStop = item === null ? current === null : current != null && current.id === item.id
+    if (historyIndex >= 0 && sameStop) {
       set({ selectedItem: item })
       return
     }
@@ -265,7 +333,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({
       selectedItem: target,
       historyIndex: historyIndex - 1,
-      expandedNodes: expandedPathTo(target, expandedNodes, objectIndex),
+      // A null target is Home: nothing to reveal in the tree.
+      expandedNodes: target ? expandedPathTo(target, expandedNodes, objectIndex) : expandedNodes,
     })
   },
 
@@ -276,7 +345,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({
       selectedItem: target,
       historyIndex: historyIndex + 1,
-      expandedNodes: expandedPathTo(target, expandedNodes, objectIndex),
+      expandedNodes: target ? expandedPathTo(target, expandedNodes, objectIndex) : expandedNodes,
     })
   },
 
@@ -292,6 +361,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     relationshipDepthShown: Math.min(MAX_RELATIONSHIP_DEPTH, state.relationshipDepthShown + 1),
   })),
   setRelationshipView: (view) => set({ relationshipView: view }),
+  setSubtreeDepth: (depth) => set({
+    subtreeDepth: Math.max(MIN_RELATIONSHIP_DEPTH, Math.min(MAX_RELATIONSHIP_DEPTH, depth)),
+  }),
 
   reset: () => set({
     namespaces: [],
@@ -303,11 +375,14 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     compositionCache: new Map(),
     typeIndex: new Map(),
     childrenByParent: new Map(),
-  objectIndex: new Map(),
+    objectIndex: new Map(),
+    searchIndex: new Map(),
     expandedNodes: new Set(),
+    childPageLimits: new Map(),
+    pendingDetailTab: null,
     selectedItem: null,
-    history: [],
-    historyIndex: -1,
+    history: [null],
+    historyIndex: 0,
     isLoading: false,
     searchQuery: ''
   })

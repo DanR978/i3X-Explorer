@@ -6,9 +6,9 @@ import type { ObjectInstance, ObjectType } from '../../api/types'
  * A node-link map of a whole catalog is a hairball, at the scale this app
  * browses (tens of thousands of objects) it says nothing you can act on. The
  * questions people actually bring to a model overview are statistical: how much
- * of each type is there, how deep does the hierarchy go, and which types contain
- * which. So this module answers those, and it answers them from the store alone
- * (no requests, no caps, no sampling).
+ * of each type is there, and how deep does the hierarchy go. So this module
+ * answers those, and it answers them from the store alone (no requests, no caps,
+ * no sampling).
  *
  * Everything here is derived from `parentId` links, which are the only edges the
  * client can know without a per-object round trip. That is a real limit and the
@@ -30,15 +30,6 @@ export interface ObjectRef {
   label: string
   typeLabel: string
   children: number
-}
-
-/** "N objects of parent type P contain objects of child type C." */
-export interface TypeLink {
-  parentTypeId: string
-  parentLabel: string
-  childTypeId: string
-  childLabel: string
-  count: number
 }
 
 export interface ModelStats {
@@ -83,12 +74,6 @@ export interface ModelStats {
   byNamespace: Tally[]
   /** Objects per hierarchy level; index is the level. */
   byDepth: Tally[]
-
-  /** Type-to-type containment, ranked. The "how they relate" of the panel. */
-  typeLinks: TypeLink[]
-  /** Distinct parent/child types present in typeLinks, ranked by total volume, the matrix axes. */
-  parentTypes: Tally[]
-  childTypes: Tally[]
 }
 
 const NO_PARENT = '/'
@@ -114,7 +99,6 @@ export function computeModelStats(
   const childCount = new Map<string, number>()
   const typeTally = new Map<string, number>()
   const namespaceTally = new Map<string, number>()
-  const linkTally = new Map<string, TypeLink>()
 
   const rootList: ObjectInstance[] = []
 
@@ -153,21 +137,6 @@ export function computeModelStats(
 
     links++
     childCount.set(parent.elementId, (childCount.get(parent.elementId) ?? 0) + 1)
-
-    const parentTypeId = parent.typeId ?? ''
-    const key = `${parentTypeId}\u0000${typeId}`
-    const existing = linkTally.get(key)
-    if (existing) {
-      existing.count++
-    } else {
-      linkTally.set(key, {
-        parentTypeId,
-        parentLabel: labelOf(parentTypeId),
-        childTypeId: typeId,
-        childLabel: labelOf(typeId),
-        count: 1,
-      })
-    }
   }
 
   const depths = computeDepths(objects, index)
@@ -183,8 +152,6 @@ export function computeModelStats(
   const avgFanout = fanouts.length
     ? fanouts.reduce((sum, count) => sum + count, 0) / fanouts.length
     : 0
-
-  const typeLinks = [...linkTally.values()].sort((a, b) => b.count - a.count)
 
   const refOf = (object: ObjectInstance): ObjectRef => ({
     elementId: object.elementId,
@@ -235,10 +202,6 @@ export function computeModelStats(
         label: depth === 0 ? 'Root' : `Level ${depth}`,
         count,
       })),
-
-    typeLinks,
-    parentTypes: axisFrom(typeLinks, link => [link.parentTypeId, link.parentLabel]),
-    childTypes: axisFrom(typeLinks, link => [link.childTypeId, link.childLabel]),
   }
 }
 
@@ -306,18 +269,6 @@ function rank(tally: Map<string, number>, labelOf: (key: string) => string): Tal
   return [...tally.entries()]
     .map(([key, count]) => ({ key, label: labelOf(key) || '(untyped)', count }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-}
-
-/** The distinct types on one side of the containment matrix, heaviest first. */
-function axisFrom(links: TypeLink[], pick: (link: TypeLink) => [string, string]): Tally[] {
-  const tally = new Map<string, Tally>()
-  for (const link of links) {
-    const [key, label] = pick(link)
-    const existing = tally.get(key)
-    if (existing) existing.count += link.count
-    else tally.set(key, { key, label: label || '(untyped)', count: link.count })
-  }
-  return [...tally.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
 }
 
 /**

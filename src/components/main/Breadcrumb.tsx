@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
 import { buildAncestorChain, useElementNavigation } from './navigation'
+import { HomeIcon } from '../common/icons'
 import type { ObjectInstance } from '../../api/types'
 
 const crumbLink =
@@ -30,7 +31,7 @@ function Separator() {
 }
 
 /**
- * "⌂ Overview › root › … › parent › **current**".
+ * "Overview › root › … › parent › **current**" (home icon on the first crumb).
  *
  * `object` renders the parent chain; `label` covers selections that have no
  * ancestry (namespaces, object types), showing just root › label.
@@ -57,8 +58,14 @@ export function Breadcrumb({ object, label }: { object?: ObjectInstance; label?:
     <nav aria-label="Breadcrumb" className="text-xs min-w-0">
       <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <li className="flex-shrink-0">
-          <button type="button" onClick={showHome} title="Model overview" className={crumbLink}>
-            ⌂ Overview
+          <button
+            type="button"
+            onClick={showHome}
+            title="Model overview"
+            className={`${crumbLink} inline-flex items-center gap-1`}
+          >
+            <HomeIcon size={11} />
+            Overview
           </button>
         </li>
 

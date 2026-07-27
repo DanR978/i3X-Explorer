@@ -2,6 +2,7 @@ import type { ObjectInstance } from '../../api/types'
 import { useExplorerStore } from '../../stores/explorer'
 import { RadialGraph } from './RadialGraph'
 import { TreeGraph } from './TreeGraph'
+import type { LocateRequest } from './locator'
 
 // Re-exported so existing importers (the list's drag source) keep working.
 export { ELEMENT_DRAG_TYPE } from './dragType'
@@ -16,6 +17,8 @@ export interface RelationshipGraphProps {
   onSelectElement: (elementId: string) => void
   /** An element hovered outside the map (e.g. a list row) — highlighted as if hovered here. */
   externalHoverId?: string | null
+  /** A search pick: the active view centres on and zooms to this node. */
+  locate?: LocateRequest | null
 }
 
 /**

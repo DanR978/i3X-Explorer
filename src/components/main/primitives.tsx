@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { CopyButton } from '../details/CopyButton'
 
 /** Card, the panel surface every detail section sits on. */
 export function Card({
@@ -38,11 +39,15 @@ export function Field({ label, value }: { label: string; value: string | null | 
       <label className="block text-[11.5px] text-i3x-text-muted mb-1.5">{label}</label>
       <div
         title={isEmpty ? undefined : shown}
-        className={`font-mono text-[13px] bg-i3x-bg border border-i3x-border rounded-lg px-3 py-2 truncate ${
+        className={`flex items-center gap-2 font-mono text-[13px] bg-i3x-bg border border-i3x-border rounded-lg px-3 py-2 ${
           isEmpty ? 'text-i3x-text-muted' : 'text-i3x-text'
         }`}
       >
-        {shown}
+        <span className="flex-1 min-w-0 truncate">{shown}</span>
+        {/* Negative margins keep the box the same height as an empty field. */}
+        {!isEmpty && (
+          <CopyButton text={shown} title={`Copy ${label}`} className="shrink-0 -my-1 -mr-1.5" />
+        )}
       </div>
     </div>
   )

@@ -10,6 +10,7 @@
   /* Accent colors, same in both themes */
   --i3x-primary:    59 130 246;   /* #3b82f6 */
   --i3x-secondary:  100 116 139;  /* #64748b */
+  --i3x-violet:     139 92 246;   /* #8b5cf6, variable/value tree icons */
   --i3x-success:    34 197 94;    /* #22c55e */
   --i3x-warning:    245 158 11;   /* #f59e0b */
   --i3x-error:      239 68 68;    /* #ef4444 */
@@ -94,17 +95,43 @@ html, body, #root {
 
 /* ── Component styles ─────────────────────────────────────────────────────── */
 
-/* Tree node styles */
+/* Tree node styles. The tree sits on --i3x-surface, so hover must be a
+   neutral tint (not surface-on-surface, which is invisible). Selection carries
+   a 2px inset accent bar in addition to the tint so it survives glancing. */
 .tree-node {
-  @apply flex items-center gap-2 px-2 py-1 cursor-pointer rounded;
+  @apply flex items-center gap-2 px-2 py-1 cursor-pointer rounded-md select-none;
 }
 
 .tree-node:hover {
-  @apply bg-i3x-surface;
+  @apply bg-i3x-text/[0.06];
 }
 
 .tree-node.selected {
-  @apply bg-i3x-primary/20 text-i3x-primary;
+  @apply bg-i3x-primary/15 text-i3x-primary;
+  box-shadow: inset 2px 0 0 rgb(var(--i3x-primary));
+}
+
+/* Keyboard focus ring (roving focus lives on the tree container; the focused
+   row is marked with this class + aria-activedescendant). */
+.tree-node.focused,
+.tree-more-focused {
+  outline: 1px solid rgb(var(--i3x-primary) / 0.55);
+  outline-offset: -1px;
+}
+
+/* Rows revealed by the latest expansion ease in. Scroll-driven mounts never
+   get this class, so scrolling stays animation-free. */
+@keyframes tree-row-enter {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.tree-row-enter {
+  animation: tree-row-enter 0.16s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-row-enter { animation: none; }
 }
 
 /* Value flash animation */

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { ObjectInstance, ObjectType } from '../../api/types'
 import {
   computeModelStats,
@@ -7,33 +7,12 @@ import {
   type ObjectRef,
   type Tally,
 } from './modelStats'
-import { Card, SegmentedControl } from './primitives'
+import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
 
 /** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
 const MAX_BARS = 12
-
-/** The containment matrix is square-ish; past this the cells stop being readable. */
-const MAX_MATRIX = 10
-
-/**
- * Sequential ramp, one hue, light → dark. Five steps: past ~7 bins adjacent
- * classes blur, and the eye can't rank them anyway. Alpha over the surface
- * rather than five hard-coded colors, so it tracks the theme in both modes.
- */
-const RAMP = [0.14, 0.32, 0.52, 0.74, 1] as const
-
-/** Which ramp step a count lands on. sqrt, because these counts are heavily skewed. */
-function rampStep(count: number, max: number): number {
-  if (count <= 0) return -1
-  if (max <= 0) return 0
-  const scaled = Math.sqrt(count) / Math.sqrt(max)
-  return Math.min(RAMP.length - 1, Math.floor(scaled * RAMP.length))
-}
-
-const swatch = (step: number) =>
-  step < 0 ? 'transparent' : `rgb(var(--i3x-primary) / ${RAMP[step]})`
 
 /**
  * What the model is made of, and, more to the point, where to start reading it.
@@ -154,8 +133,6 @@ export function ModelOverview({
           </dl>
         </Card>
       </div>
-
-      <ContainmentMatrix stats={stats} />
 
       {stats.byNamespace.length > 1 && (
         <Card title="Objects by namespace">
@@ -415,215 +392,3 @@ function BarList({
   )
 }
 
-/**
- * What contains what: parent type × child type, cell = how many objects of the
- * child type sit under an object of the parent type. This is the question a
- * schema-less catalog can't answer for you, and at 100k objects it's the fastest
- * way to learn the model's grammar without opening a single node.
- *
- * A heatmap is a grid of magnitudes, so the color job is sequential, one hue,
- * more-is-darker, with a scale legend. Values are never color-only: the hovered
- * cell is read out above the grid, and the Table view lists every link with its
- * count.
- */
-function ContainmentMatrix({ stats }: { stats: ModelStats }) {
-  const [view, setView] = useState<'matrix' | 'table'>('matrix')
-  const [hovered, setHovered] = useState<string | null>(null)
-
-  const rows = stats.parentTypes.slice(0, MAX_MATRIX)
-  const columns = stats.childTypes.slice(0, MAX_MATRIX)
-  const hiddenRows = stats.parentTypes.length - rows.length
-  const hiddenColumns = stats.childTypes.length - columns.length
-
-  const counts = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const link of stats.typeLinks) {
-      map.set(`${link.parentTypeId}\u0000${link.childTypeId}`, link.count)
-    }
-    return map
-  }, [stats.typeLinks])
-
-  const max = stats.typeLinks.reduce((peak, link) => Math.max(peak, link.count), 0)
-
-  if (stats.typeLinks.length === 0) {
-    return (
-      <Card title="What contains what">
-        <p className="text-xs text-i3x-text-muted">
-          No containment links, every object in this model is a root.
-        </p>
-      </Card>
-    )
-  }
-
-  return (
-    <Card
-      title="What contains what · parent type → child type"
-      actions={
-        <div className="flex items-center gap-2">
-          <InfoHint label="How do I read this?" title="What contains what">
-            Each cell counts the objects of the <b className="text-i3x-text">column</b> type that sit
-            directly under an object of the <b className="text-i3x-text">row</b> type. Darker means
-            more. It's the model's grammar, "a Line holds Machines, a Machine holds Sensors",
-            readable without opening a single node.
-            <br />
-            <br />
-            Built from compositional <span className="font-mono">parentId</span> links only. Switch
-            to <b className="text-i3x-text">Table</b> for exact counts of every pair.
-          </InfoHint>
-          <SegmentedControl
-            label="Containment view"
-            value={view}
-            options={[
-              { value: 'matrix', label: 'Matrix' },
-              { value: 'table', label: 'Table' },
-            ]}
-            onChange={setView}
-          />
-        </div>
-      }
-    >
-      {view === 'table' ? (
-        <div className="max-h-[420px] overflow-y-auto overscroll-contain">
-          <table className="w-full text-[12px]">
-            <thead className="sticky top-0 bg-i3x-surface">
-              <tr className="text-left text-i3x-text-muted">
-                <th className="font-normal py-1 pr-3">Parent type</th>
-                <th className="font-normal py-1 pr-3">Child type</th>
-                <th className="font-normal py-1 text-right">Objects</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.typeLinks.map(link => (
-                <tr
-                  key={`${link.parentTypeId}\u0000${link.childTypeId}`}
-                  className="border-t border-i3x-border"
-                >
-                  <td className="py-1 pr-3 text-i3x-text truncate">{link.parentLabel}</td>
-                  <td className="py-1 pr-3 text-i3x-text truncate">{link.childLabel}</td>
-                  <td className="py-1 text-right text-i3x-text tabular-nums">
-                    {link.count.toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div>
-          {/* The hovered cell, read out in text, the color is never the only channel. */}
-          <p className="h-4 mb-2 text-[11.5px] text-i3x-text-muted truncate">
-            {hovered ?? 'Hover a cell for its count.'}
-          </p>
-
-          <div className="overflow-x-auto">
-            <div
-              className="grid gap-0.5 w-max"
-              style={{ gridTemplateColumns: `minmax(90px, 160px) repeat(${columns.length}, 34px)` }}
-            >
-              <span aria-hidden="true" />
-              {columns.map(column => (
-                <span
-                  key={column.key}
-                  title={column.label}
-                  className="h-[104px] text-[11px] text-i3x-text-muted flex items-end justify-center"
-                >
-                  <span
-                    className="truncate max-h-[100px]"
-                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-                  >
-                    {column.label}
-                  </span>
-                </span>
-              ))}
-
-              {rows.map(row => (
-                <MatrixRow
-                  key={row.key}
-                  row={row}
-                  columns={columns}
-                  counts={counts}
-                  max={max}
-                  onHover={setHovered}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex items-center gap-2 text-[11px] text-i3x-text-muted">
-              <span>Fewer</span>
-              {RAMP.map((_, step) => (
-                <span
-                  key={step}
-                  aria-hidden="true"
-                  className="w-5 h-3 rounded-sm border border-i3x-border"
-                  style={{ background: swatch(step) }}
-                />
-              ))}
-              <span>More · up to {max.toLocaleString()}</span>
-            </div>
-
-            {(hiddenRows > 0 || hiddenColumns > 0) && (
-              <p className="text-[11px] text-i3x-text-muted">
-                Showing the {MAX_MATRIX} heaviest types per axis
-                {hiddenRows > 0 && ` · ${hiddenRows} more parent ${plural(hiddenRows, 'type')}`}
-                {hiddenColumns > 0 && ` · ${hiddenColumns} more child ${plural(hiddenColumns, 'type')}`}
-                . Switch to Table for all {stats.typeLinks.length.toLocaleString()}.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </Card>
-  )
-}
-
-function MatrixRow({
-  row,
-  columns,
-  counts,
-  max,
-  onHover,
-}: {
-  row: Tally
-  columns: Tally[]
-  counts: Map<string, number>
-  max: number
-  onHover: (text: string | null) => void
-}) {
-  return (
-    <>
-      <span
-        title={row.label}
-        className="text-[11.5px] text-i3x-text truncate pr-2 h-[34px] flex items-center"
-      >
-        {row.label}
-      </span>
-      {columns.map(column => {
-        const count = counts.get(`${row.key}\u0000${column.key}`) ?? 0
-        const step = rampStep(count, max)
-        const readout =
-          count === 0
-            ? `${row.label} contains no ${column.label}`
-            : `${row.label} → ${column.label} · ${count.toLocaleString()} ${plural(count, 'object')}`
-
-        return (
-          <span
-            key={column.key}
-            title={readout}
-            onMouseEnter={() => onHover(readout)}
-            onMouseLeave={() => onHover(null)}
-            className={`h-[34px] rounded-sm ${
-              count === 0 ? 'bg-i3x-bg' : 'ring-1 ring-inset ring-i3x-border/40'
-            }`}
-            style={{ background: count === 0 ? undefined : swatch(step) }}
-          />
-        )
-      })}
-    </>
-  )
-}
-
-function plural(count: number, word: string): string {
-  return count === 1 ? word : `${word}s`
-}

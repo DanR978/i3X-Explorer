@@ -1,168 +1,77 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { useExplorerStore } from '../../stores/explorer'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useExplorerStore, CHILD_PAGE_SIZE } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
-import type { ObjectType, ObjectInstance } from '../../api/types'
-import { TreeNode } from './TreeNode'
-import { VirtualObjectRows, type VirtualObjectRowsHandle } from './VirtualObjectRows'
+import type { ObjectInstance } from '../../api/types'
+import { TreeNode, TreeMoreNode, TreeRowIcon, IndentGuides } from './TreeNode'
+import { buildTreeMenu } from './treeMenu'
+import { Chevron } from '../common/Chevron'
+import { ContextMenu, type MenuEntry } from '../common/ContextMenu'
+import { CollapseAllIcon, TargetIcon } from '../common/icons'
+import { useElementNavigation } from '../main/navigation'
 import {
+  buildTreeRows,
+  activateRow,
+  expandRow,
   resolveCompositionFlags,
   refreshAllObjects,
-  hasCompositionChildren,
-  getObjectLabel,
-  MAX_TREE_DEPTH,
+  ESTIMATED_ROW_HEIGHT,
   NAMESPACES_FOLDER_ID,
   OBJECTS_FOLDER_ID,
   HIERARCHICAL_FOLDER_ID,
+  type TreeRow,
+  type NodeRow,
 } from './treeData'
 
 const BACKGROUND_POLL_ENABLED = true
 
-function isFullyVisible(scrollEl: HTMLElement, el: HTMLElement) {
-  const view = scrollEl.getBoundingClientRect()
-  const row = el.getBoundingClientRect()
-  return row.top >= view.top && row.bottom <= view.bottom
+// Nearest ancestors pinned at the top of the scroll viewport while you're deep
+// inside a large expansion. More than this and the header eats the viewport.
+const MAX_STICKY_ROWS = 3
+
+// Type-ahead: keystrokes within this window accumulate into one search buffer.
+const TYPE_AHEAD_RESET_MS = 700
+
+// px metrics for the offscreen width estimate; keep in sync with the row markup.
+const TREE_INDENT_PX = 16
+const TREE_BASE_PADDING_PX = 8
+const TREE_CHEVRON_SLOT_PX = 16
+const TREE_ICON_SLOT_PX = 15
+const TREE_GAP_PX = 8
+const TREE_COUNT_EXTRA_PX = 36
+const TREE_WIDTH_SAFETY_PX = 32
+// Widest plausible "Show N more · N hidden · show all" row.
+const TREE_MORE_ROW_PX = 280
+// Exactly measure only this many of the (approximately) widest rows.
+const WIDTH_CANDIDATES = 48
+
+/** Next focusable row index from `from` in `dir`; `from` when there is none. */
+function stepFocus(rows: TreeRow[], from: number, dir: 1 | -1): number {
+  let i = from + dir
+  while (i >= 0 && i < rows.length && rows[i].kind === 'marker') i += dir
+  return i >= 0 && i < rows.length ? i : from
 }
 
-// Deliberately not scrollIntoView(): the tree scrolls both axes, and
-// scrollIntoView would also yank it sideways on deeply-nested or long labels.
-function centerVertically(scrollEl: HTMLElement, el: HTMLElement) {
-  const view = scrollEl.getBoundingClientRect()
-  const row = el.getBoundingClientRect()
-  scrollEl.scrollTop += (row.top - view.top) - (scrollEl.clientHeight - row.height) / 2
-}
-
-// Recursive component for rendering objects with their children
-function ObjectNode({
-  obj,
-  depth,
-  filterText,
-  ancestors = new Set<string>()
-}: {
-  obj: ObjectInstance
-  depth: number
-  filterText: string
-  ancestors?: Set<string>
-}) {
-  // Subscribe only to this object's children, not the entire map
-  const children = useExplorerStore(
-    (state) => state.childObjects.get(obj.elementId) ?? []
-  )
-  const compositionCache = useExplorerStore((state) => state.compositionCache)
-  const filteredChildren = children.filter(
-    (child) =>
-      !filterText ||
-      child.displayName.toLowerCase().includes(filterText) ||
-      child.elementId.toLowerCase().includes(filterText) ||
-      child.namespaceUri.toLowerCase().includes(filterText)
-  )
-
-  // Prevent infinite recursion - depth limit or cycle detection
-  if (depth > MAX_TREE_DEPTH || ancestors.has(obj.elementId)) {
-    return (
-      <div style={{ paddingLeft: `${depth * 16 + 8}px` }} className="text-i3x-text-muted text-sm">
-        {ancestors.has(obj.elementId) ? '(cycle detected)' : '(max depth reached)'}
-      </div>
-    )
+/** Next node row (wrapping) whose label starts with the type-ahead buffer. */
+function findTypeAhead(rows: TreeRow[], from: number, buffer: string): number {
+  for (let offset = 1; offset <= rows.length; offset++) {
+    const i = (from + offset) % rows.length
+    const row = rows[i]
+    if (row.kind === 'node' && row.label.toLowerCase().startsWith(buffer)) return i
   }
-
-  // Add current object to ancestors for children
-  const childAncestors = new Set(ancestors)
-  childAncestors.add(obj.elementId)
-
-  // Count: prefer the loaded children array (post-expansion); fall back to the
-  // resolver-populated cache for unexpanded compositional objects.
-  const cachedCount = compositionCache.get(obj.elementId)
-  const childCount = children.length > 0 ? children.length : cachedCount
-  return (
-    <TreeNode
-      id={`obj:${obj.elementId}`}
-      label={getObjectLabel(obj)}
-      count={childCount && childCount > 0 ? childCount : undefined}
-      type="object"
-      data={obj}
-      depth={depth}
-      hasChildren={hasCompositionChildren(obj, compositionCache)}
-    >
-      {filteredChildren.map((child) => (
-        <ObjectNode
-          key={child.elementId}
-          obj={child}
-          depth={depth + 1}
-          filterText={filterText}
-          ancestors={childAncestors}
-        />
-      ))}
-    </TreeNode>
-  )
+  return -1
 }
 
-// Recursive component for hierarchical (parent/child) view
-// This uses parentId relationships from allObjects rather than API calls
-function HierarchicalObjectNode({
-  obj,
-  depth,
-  filterText,
-  childrenByParent,
-  visibleIds,
-  ancestors = new Set<string>()
-}: {
-  obj: ObjectInstance
-  depth: number
-  filterText: string
-  childrenByParent: Map<string, ObjectInstance[]>
-  // When filterText is active, set of object IDs that should remain visible
-  // (matches + their ancestors). Computed once at the TreeView level.
-  visibleIds?: Set<string>
-  ancestors?: Set<string>
-}) {
-  // Direct children via the prebuilt parentId index (O(1) lookup instead of
-  // scanning the entire allObjects array on every node).
-  const children = childrenByParent.get(obj.elementId) ?? []
-  const filteredChildren = filterText
-    ? children.filter(child => visibleIds?.has(child.elementId))
-    : children
-
-  // Prevent infinite recursion - depth limit or cycle detection
-  if (depth > MAX_TREE_DEPTH || ancestors.has(obj.elementId)) {
-    return (
-      <div style={{ paddingLeft: `${depth * 16 + 8}px` }} className="text-i3x-text-muted text-sm">
-        {ancestors.has(obj.elementId) ? '(cycle detected)' : '(max depth reached)'}
-      </div>
-    )
-  }
-
-  // Add current object to ancestors for children
-  const childAncestors = new Set(ancestors)
-  childAncestors.add(obj.elementId)
-
-  const hasChildren = children.length > 0
-
-  return (
-    <TreeNode
-      id={`hier:${obj.elementId}`}
-      label={getObjectLabel(obj)}
-      count={children.length > 0 ? children.length : undefined}
-      type="object"
-      data={obj}
-      depth={depth}
-      hasChildren={hasChildren}
-    >
-      {filteredChildren.map((child) => (
-        <HierarchicalObjectNode
-          key={child.elementId}
-          obj={child}
-          depth={depth + 1}
-          filterText={filterText}
-          childrenByParent={childrenByParent}
-          visibleIds={visibleIds}
-          ancestors={childAncestors}
-        />
-      ))}
-    </TreeNode>
-  )
-}
-
+/**
+ * The sidebar tree. The ENTIRE tree — Namespaces, Objects, Hierarchy — is one
+ * flattened row array (buildTreeRows) windowed by a single virtualizer, so the
+ * DOM holds only the rows near the viewport no matter how many are visible.
+ * Huge child lists are additionally paged with "Show more" rows (see
+ * CHILD_PAGE_SIZE), a sticky ancestor header keeps context pinned while
+ * scrolling deep inside one parent, and the whole thing is keyboard-driven
+ * (arrows, Home/End, Enter, type-ahead) per the ARIA tree pattern.
+ */
 export function TreeView() {
   // Narrow selectors so the tree re-renders only for the slices it uses, not on
   // every unrelated store update (e.g. live subscription values).
@@ -171,30 +80,361 @@ export function TreeView() {
   const objects = useExplorerStore(s => s.objects)
   const allObjects = useExplorerStore(s => s.allObjects)
   const hierarchicalRoots = useExplorerStore(s => s.hierarchicalRoots)
+  const childObjects = useExplorerStore(s => s.childObjects)
   const childrenByParent = useExplorerStore(s => s.childrenByParent)
+  const compositionCache = useExplorerStore(s => s.compositionCache)
+  const expandedNodes = useExplorerStore(s => s.expandedNodes)
+  const childPageLimits = useExplorerStore(s => s.childPageLimits)
+  const objectIndex = useExplorerStore(s => s.objectIndex)
+  const searchIndex = useExplorerStore(s => s.searchIndex)
   const searchQuery = useExplorerStore(s => s.searchQuery)
   const setSearchQuery = useExplorerStore(s => s.setSearchQuery)
   const pollIntervalMs = useExplorerStore(s => s.pollIntervalMs)
   const manualRefreshTick = useExplorerStore(s => s.manualRefreshTick)
-  // Only the flat Objects folder needs to know its own expansion state here, so
-  // its (potentially huge) child list is filtered/built only while it is open.
-  const objectsExpanded = useExplorerStore(s => s.expandedNodes.has(OBJECTS_FOLDER_ID))
   const selectedId = useExplorerStore(s => s.selectedItem?.id ?? null)
   const isConnected = useConnectionStore(state => state.isConnected)
 
-  // Shared scroll container + content wrapper, referenced by the virtualized
-  // Objects list to window its rows and track its offset within the scroll area.
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
+  // The input tracks searchQuery directly; the expensive rebuild follows the
+  // deferred value, so typing never blocks on filtering a 58k-object catalog.
+  const deferredQuery = useDeferredValue(searchQuery)
+  const filterText = deferredQuery.toLowerCase()
 
-  // Bring the selected node into view. Reveal is owned entirely here: an `obj:`
-  // id identifies an object, not a tree, and objects appear both under
-  // Namespaces → ObjectType (plain DOM) and in the windowed Objects list, so a
-  // prefix can't say which one to scroll to. Ask the DOM first, whichever copy
-  // is mounted is the one styled selected, and fall back to the virtualized
-  // list only when the row isn't mounted at all. Runs after VirtualObjectRows'
-  // layout effects, so its measurements are settled by the time we call it.
-  const virtualRowsRef = useRef<VirtualObjectRowsHandle>(null)
+  // The whole visible tree as one ordered array. Memoized so scroll-driven
+  // re-renders reuse it; it rebuilds only when tree data/expansion/filter change.
+  const rows = useMemo(
+    () =>
+      buildTreeRows({
+        namespaces,
+        objectTypes,
+        objectsByType: objects,
+        allObjects,
+        hierarchicalRoots,
+        childObjects,
+        childrenByParent,
+        compositionCache,
+        expandedNodes,
+        childPageLimits,
+        filterText,
+        selectedId,
+        objectIndex,
+        searchIndex,
+      }),
+    [namespaces, objectTypes, objects, allObjects, hierarchicalRoots,
+     childObjects, childrenByParent, compositionCache, expandedNodes,
+     childPageLimits, filterText, selectedId, objectIndex, searchIndex]
+  )
+
+  // ── Virtualization ────────────────────────────────────────────────────────
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [rowHeight, setRowHeight] = useState(ESTIMATED_ROW_HEIGHT)
+  const rowHeightRef = useRef(ESTIMATED_ROW_HEIGHT)
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 12,
+    getItemKey: index => rows[index].key,
+  })
+
+  const virtualItems = virtualizer.getVirtualItems()
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0
+  const paddingBottom =
+    virtualItems.length > 0
+      ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+      : 0
+
+  // Measure the true row height once from the first mounted node row so the
+  // spacer math matches the DOM regardless of platform font metrics.
+  const measuredRef = useRef(false)
+  const measureFirstRow = useCallback((el: HTMLDivElement | null) => {
+    if (!el || measuredRef.current) return
+    const h = el.getBoundingClientRect().height
+    if (h > 0) {
+      measuredRef.current = true
+      rowHeightRef.current = h
+      if (Math.abs(h - rowHeight) > 0.5) setRowHeight(h)
+    }
+  }, [rowHeight])
+
+  // ── Content width ─────────────────────────────────────────────────────────
+  // The tree scrolls both axes and only mounts visible rows, so the content
+  // width must be computed, not laid out. One cheap approximate pass finds the
+  // few widest candidates; only those are measured exactly with canvas text
+  // metrics (measuring all 50k+ labels per rebuild would cost real time).
+  const [listMinWidth, setListMinWidth] = useState(0)
+  useLayoutEffect(() => {
+    if (rows.length === 0) {
+      setListMinWidth(0)
+      return
+    }
+    const approxOf = (row: TreeRow) => {
+      const labelLen =
+        row.kind === 'node' ? row.label.length :
+        row.kind === 'marker' ? row.message.length : 0
+      const countLen =
+        row.kind === 'node' && row.count !== undefined
+          ? row.count.toLocaleString().length : 0
+      let approx = row.depth * TREE_INDENT_PX + TREE_BASE_PADDING_PX + labelLen * 8
+      approx += row.kind === 'more'
+        ? TREE_MORE_ROW_PX
+        : TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2
+      if (countLen > 0) approx += TREE_COUNT_EXTRA_PX + countLen * 8
+      return approx + TREE_WIDTH_SAFETY_PX
+    }
+
+    const candidates: { row: TreeRow; approx: number }[] = []
+    for (const row of rows) {
+      const approx = approxOf(row)
+      if (candidates.length < WIDTH_CANDIDATES) {
+        candidates.push({ row, approx })
+        continue
+      }
+      let minIdx = 0
+      for (let i = 1; i < candidates.length; i++) {
+        if (candidates[i].approx < candidates[minIdx].approx) minIdx = i
+      }
+      if (approx > candidates[minIdx].approx) candidates[minIdx] = { row, approx }
+    }
+
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    const labelEl = scrollRef.current?.querySelector('.tree-node .tree-label')
+    const styleSource = labelEl ?? scrollRef.current
+    if (context && styleSource) {
+      const style = window.getComputedStyle(styleSource)
+      context.font = style.font || `${style.fontSize} ${style.fontFamily}`
+    }
+    const measureText = (text: string) => context?.measureText(text).width ?? text.length * 8
+
+    let widest = 0
+    for (const { row } of candidates) {
+      const leftPadding = row.depth * TREE_INDENT_PX + TREE_BASE_PADDING_PX
+      let width = leftPadding + TREE_WIDTH_SAFETY_PX
+      if (row.kind === 'node') {
+        width += TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2 + measureText(row.label)
+        if (row.count !== undefined) {
+          width += TREE_COUNT_EXTRA_PX + measureText(row.count.toLocaleString())
+        }
+      } else if (row.kind === 'marker') {
+        width += measureText(row.message)
+      } else {
+        width += TREE_CHEVRON_SLOT_PX + TREE_GAP_PX + TREE_MORE_ROW_PX
+      }
+      widest = Math.max(widest, Math.ceil(width))
+    }
+    setListMinWidth(prev => (Math.abs(prev - widest) > 0.5 ? widest : prev))
+  }, [rows])
+
+  // ── Lazy composition chevrons ─────────────────────────────────────────────
+  // Resolve real child counts for the composition ('obj:') rows currently in
+  // view, so optimistic chevrons self-correct without resolving the whole
+  // catalog at once. Debounced so it fires once scrolling settles.
+  useEffect(() => {
+    const client = getClient()
+    if (!client) return
+    const targets: ObjectInstance[] = []
+    for (const vi of virtualItems) {
+      const row = rows[vi.index]
+      if (row.kind !== 'node' || row.nodeType !== 'object' || !row.id.startsWith('obj:')) continue
+      const obj = row.data as ObjectInstance
+      if (obj.isComposition && !compositionCache.has(obj.elementId)) targets.push(obj)
+    }
+    if (targets.length === 0) return
+    const handle = setTimeout(() => { void resolveCompositionFlags(client, targets) }, 150)
+    return () => clearTimeout(handle)
+  }, [virtualItems, rows, compositionCache])
+
+  // ── Sticky ancestor header ────────────────────────────────────────────────
+  // While scrolled deep inside one parent's (possibly enormous) child list, its
+  // ancestor chain stays pinned at the top of the viewport, so "where am I" is
+  // always answered. Clicking a pinned row jumps back to it.
+  const [firstIndex, setFirstIndex] = useState(0)
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const next = Math.max(0, Math.floor(event.currentTarget.scrollTop / rowHeightRef.current))
+    setFirstIndex(prev => (prev === next ? prev : next))
+    // Rows shift under a fixed-position menu; close it rather than drift.
+    setMenu(null)
+  }, [])
+
+  const fullAncestors = useCallback((index: number): number[] => {
+    const chain: number[] = []
+    let p = rows[Math.min(index, rows.length - 1)]?.parentIndex ?? -1
+    while (p >= 0) {
+      chain.unshift(p)
+      p = rows[p].parentIndex
+    }
+    return chain
+  }, [rows])
+
+  const stickyChain = useMemo(() => {
+    if (firstIndex <= 0 || rows.length === 0) return [] as number[]
+    // Fixed-point: the header occupies rows of its own height, so the chain is
+    // computed for the row that ends up visible just below it.
+    let chain: number[] = []
+    for (let iteration = 0; iteration < 4; iteration++) {
+      const next = fullAncestors(firstIndex + chain.length)
+      if (next.length === chain.length) { chain = next; break }
+      chain = next
+    }
+    return chain.slice(-MAX_STICKY_ROWS)
+  }, [rows, firstIndex, fullAncestors])
+
+  const stickyLenRef = useRef(0)
+  stickyLenRef.current = stickyChain.length
+
+  const jumpToRow = useCallback((index: number) => {
+    // Land the row just below the sticky rows that will remain above it.
+    const pinned = Math.min(fullAncestors(index).length, MAX_STICKY_ROWS)
+    virtualizer.scrollToOffset(Math.max(0, (index - pinned) * rowHeightRef.current))
+  }, [virtualizer, fullAncestors])
+
+  // ── Context menu ──────────────────────────────────────────────────────────
+  // Entries are built at open time (buildTreeMenu) and capture the row's data
+  // in closures, so they stay valid even if the row list shifts underneath.
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
+  const { selectElement } = useElementNavigation()
+
+  const openMenuForRow = useCallback((index: number, x: number, y: number) => {
+    const row = rows[index]
+    if (!row) return
+    const entries = buildTreeMenu(row, selectElement)
+    if (!entries) return
+    setFocusedIndex(index)
+    setMenu({ x, y, entries })
+  }, [rows, selectElement])
+
+  const closeMenu = useCallback(() => {
+    setMenu(null)
+    // Hand focus back to the tree so keyboard navigation resumes seamlessly.
+    scrollRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const handleRowContextMenu = useCallback((index: number) => (event: React.MouseEvent) => {
+    event.preventDefault()
+    openMenuForRow(index, event.clientX, event.clientY)
+  }, [openMenuForRow])
+
+  /** Keyboard path (Shift+F10 / Menu key): anchor the menu to the focused row. */
+  const openMenuAtRow = useCallback((index: number) => {
+    const scrollEl = scrollRef.current
+    if (!scrollEl || !rows[index]) return
+    const rect = scrollEl.getBoundingClientRect()
+    const h = rowHeightRef.current
+    const y = rect.top + (index * h - scrollEl.scrollTop) + h
+    const x = rect.left + Math.min(rows[index].depth * 16 + 60, rect.width / 2)
+    openMenuForRow(index, x, y)
+  }, [rows, openMenuForRow])
+
+  // ── Keyboard navigation (ARIA tree pattern) ───────────────────────────────
+  // Roving focus lives on the tree container (aria-activedescendant); arrows
+  // move, Left/Right collapse/expand, Enter/Space activate, letters type-ahead.
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
+  const typeAheadRef = useRef({ buffer: '', at: 0 })
+
+  const ensureRowVisible = useCallback((index: number) => {
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+    const h = rowHeightRef.current
+    const top = index * h
+    const stickyPx = stickyLenRef.current * h
+    if (top < scrollEl.scrollTop + stickyPx) {
+      scrollEl.scrollTop = Math.max(0, top - stickyPx)
+    } else if (top + h > scrollEl.scrollTop + scrollEl.clientHeight) {
+      scrollEl.scrollTop = top + h - scrollEl.clientHeight
+    }
+  }, [])
+
+  const moveFocus = useCallback((index: number) => {
+    if (index < 0 || index >= rows.length) return
+    setFocusedIndex(index)
+    ensureRowVisible(index)
+  }, [rows.length, ensureRowVisible])
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (rows.length === 0) return
+    // Leave modified keys to the browser/app (shortcuts, devtools, etc.).
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+
+    const current = focusedIndex !== null && focusedIndex < rows.length
+      ? focusedIndex
+      : Math.max(0, rows.findIndex(r => r.kind === 'node' && r.id === selectedId))
+    const row = rows[current]
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        moveFocus(stepFocus(rows, current, 1))
+        break
+      case 'ArrowUp':
+        event.preventDefault()
+        moveFocus(stepFocus(rows, current, -1))
+        break
+      case 'ArrowRight':
+        event.preventDefault()
+        if (row?.kind !== 'node') break
+        if (row.hasChildren && !row.isExpanded) {
+          expandRow(row)
+          setFocusedIndex(current)
+        } else if (row.isExpanded && rows[current + 1]?.parentIndex === current) {
+          moveFocus(current + 1)
+        }
+        break
+      case 'ArrowLeft':
+        event.preventDefault()
+        if (!row) break
+        if (row.kind === 'node' && row.hasChildren && row.isExpanded) {
+          useExplorerStore.getState().collapseNode(row.id)
+          setFocusedIndex(current)
+        } else if (row.parentIndex >= 0) {
+          moveFocus(row.parentIndex)
+        }
+        break
+      case 'Home':
+        event.preventDefault()
+        moveFocus(stepFocus(rows, -1, 1))
+        break
+      case 'End':
+        event.preventDefault()
+        moveFocus(stepFocus(rows, rows.length, -1))
+        break
+      case 'Enter':
+      case ' ':
+        event.preventDefault()
+        if (row?.kind === 'node') activateRow(row)
+        else if (row?.kind === 'more') {
+          useExplorerStore.getState().raiseChildLimit(row.parentId, CHILD_PAGE_SIZE)
+        }
+        setFocusedIndex(current)
+        break
+      case 'ContextMenu':
+        event.preventDefault()
+        openMenuAtRow(current)
+        break
+      case 'F10':
+        if (!event.shiftKey) break
+        event.preventDefault()
+        openMenuAtRow(current)
+        break
+      default: {
+        // Type-ahead: printable characters jump to the next matching label.
+        if (event.key.length !== 1) break
+        event.preventDefault()
+        const now = performance.now()
+        const state = typeAheadRef.current
+        state.buffer = now - state.at < TYPE_AHEAD_RESET_MS
+          ? state.buffer + event.key.toLowerCase()
+          : event.key.toLowerCase()
+        state.at = now
+        const match = findTypeAhead(rows, current, state.buffer)
+        if (match >= 0) moveFocus(match)
+      }
+    }
+  }, [rows, focusedIndex, selectedId, moveFocus, openMenuAtRow])
+
+  // ── Reveal the selected node ──────────────────────────────────────────────
+  // Uniform row heights mean every row has a position whether mounted or not,
+  // so reveal is pure index math — no DOM probing across tree sections.
   const lastRevealedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedId) return
@@ -202,28 +442,58 @@ export function TreeView() {
     if (lastRevealedRef.current === selectedId) return
     const scrollEl = scrollRef.current
     if (!scrollEl) return
+    const index = rows.findIndex(r => r.kind === 'node' && r.id === selectedId)
+    // Not in the visible forest yet (data loading, ancestor collapsed): leave
+    // the ref unset so a later rows change retries.
+    if (index === -1) return
+    lastRevealedRef.current = selectedId
+    setFocusedIndex(index)
+    const h = rowHeightRef.current
+    const top = index * h
+    const viewTop = scrollEl.scrollTop + stickyLenRef.current * h
+    if (top >= viewTop && top + h <= scrollEl.scrollTop + scrollEl.clientHeight) return
+    // Vertical-only: scrollToIndex writes scrollTop and never scrollLeft, so a
+    // horizontally-scrolled tree stays put.
+    virtualizer.scrollToIndex(index, { align: 'center' })
+  }, [selectedId, rows, virtualizer])
 
-    // An object can be rendered in more than one place (the flat Objects list
-    // shows it at top level and again under its composition parent), and every
-    // copy shares the selected style. If any copy is already on screen there is
-    // nothing to do; otherwise bring the first one into view.
-    const mounted = scrollEl.querySelectorAll<HTMLElement>('.tree-node.selected')
-    if (mounted.length > 0) {
-      lastRevealedRef.current = selectedId
-      if (!Array.from(mounted).some(el => isFullyVisible(scrollEl, el))) {
-        centerVertically(scrollEl, mounted[0])
+  // ── Expansion entry animation ─────────────────────────────────────────────
+  // Track which node most recently expanded; its direct children get a short
+  // ease-in when they mount. Scroll-driven mounts never qualify, so scrolling
+  // stays animation-free.
+  const prevExpandedRef = useRef(expandedNodes)
+  const lastExpandRef = useRef<{ id: string; at: number } | null>(null)
+  if (prevExpandedRef.current !== expandedNodes) {
+    for (const id of expandedNodes) {
+      if (!prevExpandedRef.current.has(id)) {
+        lastExpandRef.current = { id, at: performance.now() }
+        break
       }
-      return
     }
-    // Only the flat Objects list windows its rows, so it is the only place a
-    // selected node can exist without a DOM element.
-    if (selectedId.startsWith('obj:') &&
-        virtualRowsRef.current?.revealElementId(selectedId.slice('obj:'.length))) {
-      lastRevealedRef.current = selectedId
-    }
-    // Otherwise leave the ref unset so a later data change retries.
-  }, [selectedId, namespaces, objectTypes, objects, allObjects, hierarchicalRoots, childrenByParent])
+    prevExpandedRef.current = expandedNodes
+  }
+  const expandInfo = lastExpandRef.current
+  const animatingExpandId =
+    expandInfo && performance.now() - expandInfo.at < 400 ? expandInfo.id : null
 
+  // ── Active indent guide ───────────────────────────────────────────────────
+  // The guide column under the selected node is accented for its descendants,
+  // so the subtree you're working in reads at a glance.
+  const selectedRowIndex = useMemo(
+    () => (selectedId ? rows.findIndex(r => r.kind === 'node' && r.id === selectedId) : -1),
+    [rows, selectedId]
+  )
+  const activeGuideFor = useCallback((index: number): number | null => {
+    if (selectedRowIndex < 0) return null
+    let p = rows[index].parentIndex
+    while (p >= 0) {
+      if (p === selectedRowIndex) return (rows[selectedRowIndex] as NodeRow).depth
+      p = rows[p].parentIndex
+    }
+    return null
+  }, [rows, selectedRowIndex])
+
+  // ── Background refresh ────────────────────────────────────────────────────
   const refreshTree = useCallback(async () => {
     const client = getClient()
     if (!client) return
@@ -319,239 +589,179 @@ export function TreeView() {
     expandNode(HIERARCHICAL_FOLDER_ID)
   }, [searchQuery])
 
-   // Filter based on search. To make deep matches surface their ancestors,
-   // we precompute three sets:
-   //   matchingTypeIds: type IDs that have ≥1 matching object (so the type and
-   //     its parent namespace stay visible even if their own names don't match)
-   //   hierarchyVisibleIds: object IDs to keep in the Hierarchy view,
-   //     every match plus every ancestor up the parentId chain
-   //   matchedNamespaceUris: namespace URIs reached transitively via matching
-   //     types/objects (so a namespace whose name doesn't match still renders
-   //     when something inside it does)
-   const filterText = searchQuery.toLowerCase()
-   const objMatches = (obj: ObjectInstance) =>
-     obj.displayName.toLowerCase().includes(filterText) ||
-     obj.elementId.toLowerCase().includes(filterText) ||
-     obj.namespaceUri.toLowerCase().includes(filterText)
+  // ── Micro-toolbar actions ─────────────────────────────────────────────────
+  const collapseAll = useCallback(() => {
+    useExplorerStore.setState({ expandedNodes: new Set(), childPageLimits: new Map() })
+    setFocusedIndex(null)
+  }, [])
 
-  const matchingTypeIds = new Set<string>()
-  const hierarchyVisibleIds = new Set<string>()
-  const matchedNamespaceUris = new Set<string>()
-  if (filterText) {
-    const objById = new Map(allObjects.map(o => [o.elementId, o]))
-    for (const obj of allObjects) {
-      if (!objMatches(obj)) continue
-      matchingTypeIds.add(obj.typeId)
-      // Walk parents up to the root, marking every ancestor visible
-      let cur: ObjectInstance | undefined = obj
-      while (cur && !hierarchyVisibleIds.has(cur.elementId)) {
-        hierarchyVisibleIds.add(cur.elementId)
-        cur = cur.parentId ? objById.get(cur.parentId) : undefined
-      }
-    }
-    // Any type that matches by name OR by descendant pulls its namespace in
-    for (const type of objectTypes) {
-      const typeMatches =
-        type.displayName.toLowerCase().includes(filterText) ||
-        type.elementId.toLowerCase().includes(filterText) ||
-        matchingTypeIds.has(type.elementId)
-      if (typeMatches) matchedNamespaceUris.add(type.namespaceUri)
-    }
-  }
-
-  const filteredNamespaces = namespaces.filter(ns => {
-    if (!filterText) return true
-    if (
-      ns.displayName.toLowerCase().includes(filterText) ||
-      ns.uri.toLowerCase().includes(filterText)
-    ) return true
-    return matchedNamespaceUris.has(ns.uri)
-  })
-
-  // Group object types by namespace; keep types whose name matches OR whose
-  // descendant objects match.
-  const typesByNamespace = new Map<string, ObjectType[]>()
-  objectTypes.forEach((type) => {
-    const keep =
-      !filterText ||
-      type.displayName.toLowerCase().includes(filterText) ||
-      type.elementId.toLowerCase().includes(filterText) ||
-      matchingTypeIds.has(type.elementId)
-    if (keep) {
-      const types = typesByNamespace.get(type.namespaceUri) || []
-      types.push(type)
-      typesByNamespace.set(type.namespaceUri, types)
-    }
-  })
-
-  // Filter all objects for the Objects folder (flat list, only direct matches).
-  // Materialized only while the Objects folder is open: with tens of thousands
-  // of objects, filtering and building this array on every render is a large
-  // cost that would otherwise be paid even while the folder is collapsed.
-  const filteredAllObjects = useMemo(() => {
-    if (!objectsExpanded) return [] as ObjectInstance[]
-    if (!filterText) return allObjects
-    return allObjects.filter(obj =>
-      obj.displayName.toLowerCase().includes(filterText) ||
-      obj.elementId.toLowerCase().includes(filterText) ||
-      obj.namespaceUri.toLowerCase().includes(filterText)
-    )
-  }, [objectsExpanded, filterText, allObjects])
-
-  const filteredHierarchicalRoots = hierarchicalRoots.filter(
-    obj => !filterText || hierarchyVisibleIds.has(obj.elementId)
-  )
+  const locateSelection = useCallback(() => {
+    if (!selectedId) return
+    const index = rows.findIndex(r => r.kind === 'node' && r.id === selectedId)
+    if (index === -1) return
+    setFocusedIndex(index)
+    virtualizer.scrollToIndex(index, { align: 'center' })
+  }, [selectedId, rows, virtualizer])
 
   const hasNamespaces = namespaces.length > 0
-
-  // Instance count per type, derived from already-loaded allObjects (no extra
-  // network). Memoized so the group-by only runs when allObjects changes, not
-  // on every keystroke in the filter input. Hierarchy node counts are derived
-  // locally from each node's `children` array, so no parent map needed here.
-  const objectCountByType = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const o of allObjects) m.set(o.typeId, (m.get(o.typeId) ?? 0) + 1)
-    return m
-  }, [allObjects])
+  const firstNodeItem = virtualItems.find(vi => rows[vi.index]?.kind === 'node')
+  const toolButton =
+    'shrink-0 w-6 h-6 grid place-items-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary'
 
   return (
     <div className="flex flex-col h-full min-h-0 text-i3x-text">
-      {/* Filter input, fixed header so it stays put (and full-width) while the
-          tree body scrolls horizontally */}
-      <div className="shrink-0 bg-i3x-surface pb-2 mb-1">
+      {/* Filter input + micro-toolbar, fixed header so it stays put (and
+          full-width) while the tree body scrolls horizontally */}
+      <div className="shrink-0 bg-i3x-surface pb-2 mb-1 flex items-center gap-1.5">
         <input
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           placeholder="Filter tree…"
-          className="w-full px-2 py-1 text-sm bg-i3x-bg border border-i3x-border rounded text-i3x-text placeholder:text-i3x-text-muted focus:outline-none focus:border-i3x-primary"
+          className="flex-1 min-w-0 px-2 py-1 text-sm bg-i3x-bg border border-i3x-border rounded text-i3x-text placeholder:text-i3x-text-muted focus:outline-none focus:border-i3x-primary"
         />
+        <button
+          type="button"
+          onClick={collapseAll}
+          title="Collapse all"
+          aria-label="Collapse all"
+          className={toolButton}
+        >
+          <CollapseAllIcon size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={locateSelection}
+          disabled={!selectedId}
+          title="Reveal selection"
+          aria-label="Reveal selection"
+          className={toolButton}
+        >
+          <TargetIcon size={14} />
+        </button>
       </div>
 
-      {/* Tree body, scrolls both axes. The inner w-max wrapper grows to the
-          widest row so long labels/deep nesting extend a horizontal scrollbar,
-          while min-w-full keeps rows (highlights, count leader-lines) panel-wide
-          when content fits. */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
-       <div ref={contentRef} className="w-max min-w-full">
-      {/* Namespaces folder */}
-      <TreeNode
-        id={NAMESPACES_FOLDER_ID}
-        label="Namespaces"
-        count={namespaces.length > 0 ? namespaces.length : undefined}
-        type="folder"
-        depth={0}
-        hasChildren={hasNamespaces}
-      >
-        {filteredNamespaces.map((namespace) => {
-          const nsTypes = typesByNamespace.get(namespace.uri) || []
-          const hasTypes = nsTypes.length > 0
-
-          return (
-            <TreeNode
-              key={namespace.uri}
-              id={`ns:${namespace.uri}`}
-              label={namespace.displayName}
-              count={nsTypes.length > 0 ? nsTypes.length : undefined}
-              type="namespace"
-              data={namespace}
-              depth={1}
-              hasChildren={hasTypes}
-            >
-               {nsTypes.map((type) => {
-                 const typeObjects = objects.get(type.elementId) ?? []
-                 const filteredObjects = typeObjects.filter(
-                   (obj) =>
-                     !filterText ||
-                     obj.displayName.toLowerCase().includes(filterText) ||
-                     obj.elementId.toLowerCase().includes(filterText) ||
-                     obj.namespaceUri.toLowerCase().includes(filterText)
-                 )
-                 const instanceCount = objectCountByType.get(type.elementId)
-
-                 return (
-                   <TreeNode
-                     key={type.elementId}
-                     id={`type:${type.elementId}`}
-                     label={type.displayName}
-                     count={instanceCount && instanceCount > 0 ? instanceCount : undefined}
-                     type="objectType"
-                     data={type}
-                     depth={2}
-                     hasChildren={true}
-                   >
-                     {filteredObjects.map((obj) => (
-                       <ObjectNode
-                         key={obj.elementId}
-                         obj={obj}
-                         depth={3}
-                         filterText={filterText}
-                       />
-                     ))}
-                   </TreeNode>
-                 )
-               })}
-            </TreeNode>
-           )
-         })}
-       </TreeNode>
-
-       {/* Objects folder (flat list) */}
-       <TreeNode
-         id={OBJECTS_FOLDER_ID}
-         label="Objects"
-         count={allObjects.length > 0 ? allObjects.length : undefined}
-         type="folder"
-         depth={0}
-         hasChildren={true}
-       >
-         <VirtualObjectRows
-           ref={virtualRowsRef}
-           roots={filteredAllObjects}
-           scrollRef={scrollRef}
-           contentRef={contentRef}
-           filterText={filterText}
-         />
-         {allObjects.length > 0 && filteredAllObjects.length === 0 && (
-           <div className="text-i3x-text-muted text-sm py-2 pl-8">
-             No matching objects
-           </div>
-         )}
-       </TreeNode>
-
-      {/* Hierarchical folder (parent/child structure) */}
-      <TreeNode
-        id={HIERARCHICAL_FOLDER_ID}
-        label="Hierarchy"
-        count={hierarchicalRoots.length > 0 ? hierarchicalRoots.length : undefined}
-        type="folder"
-        depth={0}
-        hasChildren={true}
-      >
-        {filteredHierarchicalRoots.map((obj) => (
-          <HierarchicalObjectNode
-            key={`hier-${obj.elementId}`}
-            obj={obj}
-            depth={1}
-            filterText={filterText}
-            childrenByParent={childrenByParent}
-            visibleIds={hierarchyVisibleIds}
-          />
-        ))}
-        {allObjects.length > 0 && filteredHierarchicalRoots.length === 0 && (
-          <div className="text-i3x-text-muted text-sm py-2 pl-8">
-            {filterText ? 'No matching objects' : 'No root objects found'}
+      <div className="relative flex-1 min-h-0">
+        {/* Sticky ancestor header: pinned to the viewport, unaffected by
+            horizontal scroll, above the windowed rows. */}
+        {stickyChain.length > 0 && (
+          <div className="absolute top-0 left-0 right-2 z-10 border-b border-i3x-border bg-i3x-surface/95 backdrop-blur-[2px] shadow-sm overflow-hidden">
+            {stickyChain.map(index => {
+              const row = rows[index] as NodeRow
+              return (
+                <div
+                  key={row.key}
+                  onClick={() => jumpToRow(index)}
+                  onContextMenu={handleRowContextMenu(index)}
+                  title={`Jump to ${row.label}`}
+                  style={{ paddingLeft: `${row.depth * 16 + 8}px`, height: rowHeight }}
+                  className="flex items-center gap-2 pr-2 cursor-pointer hover:bg-i3x-text/[0.06]"
+                >
+                  <span className="w-4 flex-shrink-0 flex items-center justify-center">
+                    <Chevron open />
+                  </span>
+                  <span className="flex-shrink-0 flex items-center">
+                    <TreeRowIcon row={row} />
+                  </span>
+                  <span className="whitespace-nowrap text-sm truncate">{row.label}</span>
+                </div>
+              )
+            })}
           </div>
         )}
-      </TreeNode>
 
-      {!hasNamespaces && (
-        <div className="text-center text-i3x-text-muted text-sm py-4">
-          {searchQuery ? 'No results found' : 'Connect to a server to browse'}
+        {/* Tree body, scrolls both axes. The inner w-max wrapper grows to the
+            computed widest row so long labels/deep nesting extend a horizontal
+            scrollbar, while min-w-full keeps rows (highlights, count pills)
+            panel-wide when content fits. */}
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onKeyDown={handleKeyDown}
+          tabIndex={0}
+          role="tree"
+          aria-label="Model tree"
+          aria-activedescendant={focusedIndex !== null ? `tree-row-${focusedIndex}` : undefined}
+          className="h-full overflow-auto focus:outline-none"
+        >
+          <div
+            className="w-max min-w-full"
+            style={listMinWidth > 0 ? { minWidth: listMinWidth } : undefined}
+          >
+            <div style={{ paddingTop, paddingBottom }}>
+              {virtualItems.map(vi => {
+                const row = rows[vi.index]
+                const parentRow = row.parentIndex >= 0 ? rows[row.parentIndex] : undefined
+                const entering =
+                  animatingExpandId !== null &&
+                  parentRow?.kind === 'node' &&
+                  parentRow.id === animatingExpandId
+                const enterDelay = entering
+                  ? Math.min(Math.max(vi.index - row.parentIndex - 1, 0), 10) * 14
+                  : 0
+                const wrapperClass = entering ? 'tree-row-enter' : undefined
+                const wrapperStyle = enterDelay > 0 ? { animationDelay: `${enterDelay}ms` } : undefined
+                const focused = focusedIndex === vi.index
+                const activeGuide = activeGuideFor(vi.index)
+
+                if (row.kind === 'marker') {
+                  return (
+                    <div key={row.key} className={wrapperClass} style={wrapperStyle}>
+                      <div
+                        style={{ paddingLeft: `${row.depth * 16 + 8}px`, height: rowHeight }}
+                        className="relative flex items-center text-i3x-text-muted text-sm"
+                      >
+                        <IndentGuides depth={row.depth} active={activeGuide} />
+                        {row.message}
+                      </div>
+                    </div>
+                  )
+                }
+                if (row.kind === 'more') {
+                  return (
+                    <div
+                      key={row.key}
+                      id={`tree-row-${vi.index}`}
+                      className={wrapperClass}
+                      style={wrapperStyle}
+                      onClick={() => setFocusedIndex(vi.index)}
+                      onContextMenu={handleRowContextMenu(vi.index)}
+                    >
+                      <TreeMoreNode row={row} height={rowHeight} focused={focused} activeGuide={activeGuide} />
+                    </div>
+                  )
+                }
+                const measure = vi.key === firstNodeItem?.key ? measureFirstRow : undefined
+                return (
+                  <div
+                    key={row.key}
+                    ref={measure}
+                    className={wrapperClass}
+                    style={wrapperStyle}
+                    onClick={() => setFocusedIndex(vi.index)}
+                    onContextMenu={handleRowContextMenu(vi.index)}
+                  >
+                    <TreeNode
+                      row={row}
+                      focused={focused}
+                      activeGuide={activeGuide}
+                      domId={`tree-row-${vi.index}`}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {!hasNamespaces && (
+            <div className="text-center text-i3x-text-muted text-sm py-4">
+              {searchQuery ? 'No results found' : 'Connect to a server to browse'}
+            </div>
+          )}
         </div>
-      )}
-       </div>
       </div>
+
+      {menu && <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={closeMenu} />}
     </div>
   )
 }

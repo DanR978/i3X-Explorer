@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { SubscriptionsView } from './SubscriptionsView'
+import { CloseIcon } from '../common/icons'
 
 const MIN_HEIGHT = 120
 const MAX_HEIGHT = 600
@@ -70,9 +71,9 @@ export function SubscriptionsDrawer() {
           onClick={() => setOpen(false)}
           aria-label="Close subscriptions"
           title="Close subscriptions"
-          className="ml-auto px-1.5 text-i3x-text-muted hover:text-i3x-text rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+          className="ml-auto px-1.5 py-0.5 text-i3x-text-muted hover:text-i3x-text rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
-          ✕
+          <CloseIcon size={13} />
         </button>
       </div>
 

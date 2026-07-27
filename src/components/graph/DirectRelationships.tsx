@@ -3,6 +3,7 @@ import type { ObjectInstance } from '../../api/types'
 import { getClient } from '../../api/client'
 import { useExplorerStore } from '../../stores/explorer'
 import { Chevron } from '../common/Chevron'
+import { GripIcon, TargetIcon } from '../common/icons'
 import { BUCKET_COLOR, bucketOf, type RelationshipBucket } from './relationshipColors'
 import { directNeighbors, type Neighbor } from './egoGraph'
 import { ELEMENT_DRAG_TYPE } from './dragType'
@@ -41,7 +42,7 @@ export function groupByRelationship(neighbors: Neighbor[]): RelationshipGroup[] 
  * single view answers "what is this connected to?".
  *
  * Rows are draggable onto the relationship tree, which re-roots it on the
- * dropped element. The ◎ button does the same thing for keyboard users and for
+ * dropped element. The target button does the same thing for keyboard users and for
  * anyone who doesn't discover the drag.
  */
 export function DirectRelationships({
@@ -49,6 +50,8 @@ export function DirectRelationships({
   onSelect,
   onFocus,
   onHover,
+  filter,
+  onNeighbors,
 }: {
   element: ObjectInstance
   onSelect: (object: ObjectInstance) => void
@@ -56,6 +59,10 @@ export function DirectRelationships({
   onFocus: (object: ObjectInstance) => void
   /** Row hovered or left. The map highlights that element as if hovered there. */
   onHover?: (elementId: string | null) => void
+  /** Search text: only rows (or whole relationship types) matching it are shown. */
+  filter?: string
+  /** Reports the current neighbor set, so the header search can autocomplete over it. */
+  onNeighbors?: (neighbors: Neighbor[]) => void
 }) {
   const [related, setRelated] = useState<ObjectInstance[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -91,12 +98,42 @@ export function DirectRelationships({
     }
   }, [element.elementId])
 
-  const groups = useMemo(
-    () => groupByRelationship(directNeighbors(element, related, { objectIndex, childrenByParent })),
+  const neighbors = useMemo(
+    () => directNeighbors(element, related, { objectIndex, childrenByParent }),
     [element, related, objectIndex, childrenByParent]
   )
 
+  useEffect(() => {
+    onNeighbors?.(neighbors)
+  }, [neighbors, onNeighbors])
+
+  const groups = useMemo(() => groupByRelationship(neighbors), [neighbors])
+
   const total = useMemo(() => groups.reduce((sum, group) => sum + group.items.length, 0), [groups])
+
+  // A group whose TYPE matches keeps all its rows (searching "monitors" should
+  // show what monitors); otherwise it keeps only the rows that match themselves.
+  const text = filter?.trim().toLowerCase() ?? ''
+  const filteredGroups = useMemo(() => {
+    if (!text) return groups
+    return groups
+      .map(group => {
+        if (group.type.toLowerCase().includes(text)) return group
+        const items = group.items.filter(
+          item =>
+            item.object.displayName.toLowerCase().includes(text) ||
+            item.object.elementId.toLowerCase().includes(text) ||
+            (item.object.typeId ?? '').toLowerCase().includes(text)
+        )
+        return items.length > 0 ? { ...group, items } : null
+      })
+      .filter((group): group is RelationshipGroup => group !== null)
+  }, [groups, text])
+
+  const shownTotal = useMemo(
+    () => filteredGroups.reduce((sum, group) => sum + group.items.length, 0),
+    [filteredGroups]
+  )
 
   if (isLoading && total === 0) {
     return <p className="text-xs text-i3x-text-muted">Loading relationships…</p>
@@ -111,22 +148,37 @@ export function DirectRelationships({
   return (
     <div className="flex flex-col h-full min-h-0">
       <p className="mb-2 shrink-0 text-[11px] text-i3x-text-muted">
-        {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag a row
-        onto the map to focus it there
+        {text ? (
+          <>
+            {shownTotal.toLocaleString()} of {total.toLocaleString()}{' '}
+            {total === 1 ? 'relationship matches' : 'relationships match'}
+          </>
+        ) : (
+          <>
+            {total.toLocaleString()} direct {total === 1 ? 'relationship' : 'relationships'} · drag
+            a row onto the map to focus it there
+          </>
+        )}
       </p>
 
       {/* Fills the pane and scrolls in place, so a hub with thousands of children
           doesn't stretch the card. pr/-mr keeps the scrollbar off the rows. */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1">
-        {groups.map(group => (
-          <Group
-            key={group.type}
-            group={group}
-            onSelect={onSelect}
-            onFocus={onFocus}
-            onHover={onHover}
-          />
-        ))}
+        {shownTotal === 0 ? (
+          <p className="text-xs text-i3x-text-muted px-2 py-1">
+            No relationships match “{filter?.trim()}”.
+          </p>
+        ) : (
+          filteredGroups.map(group => (
+            <Group
+              key={group.type}
+              group={group}
+              onSelect={onSelect}
+              onFocus={onFocus}
+              onHover={onHover}
+            />
+          ))
+        )}
       </div>
     </div>
   )
@@ -231,10 +283,10 @@ function Row({
     >
       <span
         aria-hidden="true"
-        className="pl-1.5 text-[11px] leading-none text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
+        className="pl-1.5 flex items-center text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
         title="Drag onto the map to focus it here"
       >
-        ⠿
+        <GripIcon size={12} />
       </span>
 
       <button
@@ -256,7 +308,7 @@ function Row({
         title="Focus the map here"
         className="mr-1 w-6 h-6 grid place-items-center rounded-md text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-i3x-surface hover:text-i3x-primary transition-opacity motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
-        ◎
+        <TargetIcon size={14} />
       </button>
     </li>
   )
