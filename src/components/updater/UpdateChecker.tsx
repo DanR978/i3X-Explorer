@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
 import { SparklesIcon } from '../common/icons'
 
-const GITHUB_API_URL = 'https://api.github.com/repos/ace-technologies-inc/i3X-Explorer/releases/latest'
-const GITHUB_RELEASES_URL = 'https://github.com/ace-technologies-inc/i3X-Explorer/releases'
+// Keep in sync with package.json "repository". If this repo has no releases
+// yet, the /releases/latest probe 404s and the check silently no-ops.
+const GITHUB_REPO = 'DanR978/i3X-Explorer'
+const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 
 export function isNewerVersion(current: string, candidate: string): boolean {
   // Strip a leading "v" and any prerelease suffix; missing parts count as 0.

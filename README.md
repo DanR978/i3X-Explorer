@@ -63,7 +63,7 @@ Optionally, consider using [AppImageLauncher](https://github.com/TheAssassin/App
 
 ```bash
 # Clone the repository
-git clone https://github.com/cesmii/I3X-Explorer.git
+git clone https://github.com/DanR978/i3X-Explorer.git
 cd I3X-Explorer
 
 # Use correct Node version
