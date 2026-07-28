@@ -47,6 +47,11 @@ function extractVQT(payload: Record<string, unknown>): { value: unknown; quality
 
 export class SSESubscription {
   private abortController: AbortController | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  // Set by disconnect(). A pending reconnect timer survives abort() (its callback
+  // builds a fresh AbortController), so without this flag a deleted subscription's
+  // timer would fire, 404, and trigger recovery — resurrecting the subscription.
+  private disposed = false
   private url: string
   private credentials: ClientCredentials | null
   private postBody: object | undefined
@@ -84,11 +89,17 @@ export class SSESubscription {
 
   connect(): void {
     this.disconnect()
-    this.abortController = new AbortController()
-    this.startFetch()
+    this.disposed = false
+    const controller = new AbortController()
+    this.abortController = controller
+    void this.startFetch(controller)
   }
 
-  private async startFetch(): Promise<void> {
+  // Takes its controller explicitly and re-checks identity against the instance
+  // field: a loop superseded by a newer connect() can never flip state or
+  // schedule a reconnect, even before its aborted fetch settles.
+  private async startFetch(controller: AbortController): Promise<void> {
+    if (this.disposed || controller !== this.abortController) return
     const headers: Record<string, string> = {
       'Accept': 'text/event-stream'
     }
@@ -104,7 +115,7 @@ export class SSESubscription {
         method: this.postBody ? 'POST' : 'GET',
         headers,
         body: this.postBody ? JSON.stringify(this.postBody) : undefined,
-        signal: this.abortController?.signal
+        signal: controller.signal
       })
 
       if (!response.ok) {
@@ -150,7 +161,7 @@ export class SSESubscription {
 
       // Stream ended normally
       this.connected = false
-      this.handleDisconnect()
+      this.handleDisconnect(controller)
     } catch (err) {
       this.connected = false
       if (err instanceof Error && err.name === 'AbortError') {
@@ -158,7 +169,7 @@ export class SSESubscription {
         return
       }
       console.error('SSE error:', err)
-      this.handleDisconnect()
+      this.handleDisconnect(controller)
     }
   }
 
@@ -211,15 +222,19 @@ export class SSESubscription {
     }
   }
 
-  private handleDisconnect(): void {
+  private handleDisconnect(controller: AbortController): void {
+    if (this.disposed || controller !== this.abortController) return
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
       const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
       console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
-      setTimeout(() => {
-        this.abortController = new AbortController()
-        this.startFetch()
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null
+        if (this.disposed) return
+        const next = new AbortController()
+        this.abortController = next
+        void this.startFetch(next)
       }, delay)
     } else {
       this.onError(new Error('Max reconnection attempts reached'))
@@ -227,6 +242,11 @@ export class SSESubscription {
   }
 
   disconnect(): void {
+    this.disposed = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     if (this.abortController) {
       this.abortController.abort()
       this.abortController = null
@@ -242,7 +262,8 @@ export class SSESubscription {
 
 // Polling-based subscription (QoS 2 fallback)
 export class PollingSubscription {
-  private intervalId: ReturnType<typeof setInterval> | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private running = false
   private syncFn: () => Promise<SyncResponseItem[]>
   private onData: SubscriptionCallback
   private onError: ErrorCallback
@@ -262,29 +283,38 @@ export class PollingSubscription {
 
   start(): void {
     this.stop()
-    this.poll() // Initial poll
-    this.intervalId = setInterval(() => this.poll(), this.pollInterval)
+    this.running = true
+    void this.loop()
   }
 
-  private async poll(): Promise<void> {
+  // Self-rescheduling chain, not setInterval: the next poll is armed only after
+  // the previous sync settles, so a sync slower than the interval can never
+  // stack concurrent requests against the server.
+  private async loop(): Promise<void> {
+    if (!this.running) return
     try {
       const items = await this.syncFn()
-      if (items.length > 0) {
+      if (this.running && items.length > 0) {
         this.onData(items)
       }
     } catch (err) {
-      this.onError(err instanceof Error ? err : new Error(String(err)))
+      if (this.running) {
+        this.onError(err instanceof Error ? err : new Error(String(err)))
+      }
     }
+    if (!this.running) return
+    this.timer = setTimeout(() => void this.loop(), this.pollInterval)
   }
 
   stop(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = null
+    this.running = false
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
     }
   }
 
   isRunning(): boolean {
-    return this.intervalId !== null
+    return this.running
   }
 }

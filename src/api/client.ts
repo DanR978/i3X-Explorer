@@ -212,7 +212,16 @@ export class I3XClient {
       throw new Error(errorMessage)
     }
 
-    const data = await response.json()
+    // 204 No Content and empty 200 bodies are legitimate for register/unregister/
+    // delete/sync; response.json() would throw SyntaxError on them.
+    if (status === 204) {
+      return { data: undefined as T, status }
+    }
+    const text = await response.text()
+    if (!text.trim()) {
+      return { data: undefined as T, status }
+    }
+    const data: unknown = JSON.parse(text)
 
     // v1 wraps single-value responses: {success: true, result: <data>}
     // POST bulk responses use {success, results: [...]} and are handled per-method.
