@@ -8,6 +8,8 @@ import { expandEgoGraph, type EgoGraph } from './egoGraph'
 import { COLUMN_WIDTH, layoutTree, MAX_LABEL_CHARS, type PositionedNode } from './treeLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 import { FrameIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
+import { I3xLoader } from '../common/I3xLoader'
 import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.2
@@ -292,7 +294,8 @@ export function TreeGraph({
           </Centered>
         ) : !layout && isLoading ? (
           <Centered>
-            <p className="text-xs text-i3x-text-muted">Walking relationships…</p>
+            <I3xLoader size={64} className="mx-auto" />
+            <p className="mt-3 text-xs text-i3x-text-muted">Walking relationships…</p>
           </Centered>
         ) : layout && layout.nodes.length <= 1 ? (
           <Centered>
@@ -429,7 +432,10 @@ export function TreeGraph({
       </div>
 
       {isLoading && graph && (
-        <p className="mt-2 shrink-0 text-[11.5px] text-i3x-text-muted">Expanding…</p>
+        <p className="mt-2 shrink-0 flex items-center gap-1.5 text-[11.5px] text-i3x-text-muted">
+          <Spinner size={11} />
+          Expanding…
+        </p>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import { getClient } from '../../api/client'
 import { useExplorerStore } from '../../stores/explorer'
 import { Chevron } from '../common/Chevron'
 import { GripIcon, TargetIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 import { BUCKET_COLOR, bucketOf, type RelationshipBucket } from './relationshipColors'
 import { directNeighbors, type Neighbor } from './egoGraph'
 import { ELEMENT_DRAG_TYPE } from './dragType'
@@ -136,7 +137,12 @@ export function DirectRelationships({
   )
 
   if (isLoading && total === 0) {
-    return <p className="text-xs text-i3x-text-muted">Loading relationships…</p>
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-i3x-text-muted">
+        <Spinner size={12} />
+        Loading relationships…
+      </p>
+    )
   }
   if (error && total === 0) {
     return <p className="text-xs text-i3x-error">{error}</p>

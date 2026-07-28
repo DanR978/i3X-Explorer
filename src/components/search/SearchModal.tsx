@@ -3,6 +3,7 @@ import { useExplorerStore } from '../../stores/explorer'
 import { getClient } from '../../api/client'
 import { isScalarSchemaType } from '../tree/treeData'
 import { SearchIcon, CloseIcon, CubeIcon, ActivityIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 import type { ObjectInstance } from '../../api/types'
 
 interface SearchResult {
@@ -205,7 +206,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
             className="flex-1 bg-transparent text-sm text-i3x-text outline-none placeholder:text-i3x-text-muted"
           />
           {isLoading && (
-            <span className="text-xs text-i3x-text-muted flex-shrink-0">Searching…</span>
+            <span className="flex items-center gap-1.5 text-xs text-i3x-text-muted flex-shrink-0">
+              <Spinner size={12} />
+              Searching…
+            </span>
           )}
           <button
             onClick={onClose}

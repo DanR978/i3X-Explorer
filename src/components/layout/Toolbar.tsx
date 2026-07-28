@@ -5,6 +5,7 @@ import { useExplorerStore } from '../../stores/explorer'
 import { performConnect, performDisconnect } from '../../services/connection'
 import { SearchModal } from '../search/SearchModal'
 import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 import iconPng from '/icon.png'
 
 type Theme = 'light' | 'dark'
@@ -185,9 +186,9 @@ export function Toolbar() {
           <button
             onClick={handleConnect}
             disabled={isConnecting || !serverUrl}
-            className="px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-i3x-primary text-white rounded hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isConnecting ? 'Connecting...' : 'Connect'}
+            {isConnecting ? <><Spinner size={11} /> Connecting…</> : 'Connect'}
           </button>
         ) : (
           <button

@@ -10,6 +10,7 @@ import {
 import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
+import { I3xLoader } from '../common/I3xLoader'
 
 /** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
 const MAX_BARS = 12
@@ -27,10 +28,13 @@ export function ModelOverview({
   objects,
   objectTypes,
   namespaceCount,
+  isLoading = false,
 }: {
   objects: ObjectInstance[]
   objectTypes: ObjectType[]
   namespaceCount: number
+  /** True while the catalog fetch is in flight — shows the skeleton instead of "No model loaded". */
+  isLoading?: boolean
 }) {
   const { selectElement, selectType } = useElementNavigation()
 
@@ -40,6 +44,7 @@ export function ModelOverview({
   )
 
   if (objects.length === 0) {
+    if (isLoading) return <OverviewSkeleton />
     return (
       <div className="flex-1 grid place-items-center text-center p-6">
         <div>
@@ -144,6 +149,51 @@ export function ModelOverview({
 }
 
 /** The headline numbers. Proportional figures, tabular-nums makes display sizes look loose. */
+/**
+ * Shown while the catalog is still arriving. Mirrors the real layout (stat
+ * row, then two card columns) so the page doesn't jump when the data lands.
+ */
+function OverviewSkeleton() {
+  return (
+    <div
+      className="flex-1 min-h-0 overflow-hidden px-3 sm:px-5 py-4 space-y-3"
+      role="status"
+      aria-label="Loading model overview"
+    >
+      <div className="flex flex-col items-center gap-2 py-3 text-xs text-i3x-text-muted">
+        <I3xLoader size={72} />
+        Loading model…
+      </div>
+      <div className="space-y-3 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="bg-i3x-surface border border-i3x-border rounded-xl p-4 space-y-2">
+              <div className="h-2.5 w-3/5 rounded bg-i3x-text/10" />
+              <div className="h-5 w-2/5 rounded bg-i3x-text/10" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="bg-i3x-surface border border-i3x-border rounded-xl p-4">
+              <div className="h-2.5 w-1/3 rounded bg-i3x-text/10" />
+              <div className="mt-4 space-y-3">
+                {Array.from({ length: 5 }, (_, j) => (
+                  <div
+                    key={j}
+                    className="h-3.5 rounded bg-i3x-text/10"
+                    style={{ width: `${90 - j * 12}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StatRow({ stats }: { stats: ModelStats }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">

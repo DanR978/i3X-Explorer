@@ -10,6 +10,7 @@ import { RelationshipsTab } from './tabs/RelationshipsTab'
 import { HistoryTab } from './tabs/HistoryTab'
 import { SubtreeTab } from './tabs/SubtreeTab'
 import { BroadcastIcon } from '../common/icons'
+import { Spinner } from '../common/Spinner'
 
 // Subscriptions are deliberately absent: they're global state, not a property of
 // whichever element happens to be selected, so they live in the bottom drawer.
@@ -179,7 +180,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
               disabled={isSubscribing}
               className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-i3x-primary rounded-lg hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
             >
-              {isSubscribing ? 'Subscribing…' : <><BroadcastIcon size={13} /> Subscribe</>}
+              {isSubscribing ? <><Spinner size={13} /> Subscribing…</> : <><BroadcastIcon size={13} /> Subscribe</>}
             </button>
           </div>
         </div>
