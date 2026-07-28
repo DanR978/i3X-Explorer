@@ -151,10 +151,15 @@ export function TreeNode({
       <span className="flex-shrink-0 flex items-center">
         <TreeRowIcon row={row} />
       </span>
-      <span className="tree-label whitespace-nowrap text-sm">{label}</span>
+      {/* Truncate, never scroll: the count pill stays pinned at the panel edge
+          at any panel width; the tooltip carries the full name and widening
+          the sidebar reveals more of it. */}
+      <span className="tree-label flex-1 min-w-0 truncate text-sm" title={label}>
+        {label}
+      </span>
 
       {/* Right edge: hover copy action, then the count pill. */}
-      <span className="ml-auto flex items-center flex-shrink-0 pl-2">
+      <span className="flex items-center flex-shrink-0 pl-2">
         {copyValue && (
           <button
             type="button"

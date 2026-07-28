@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useExplorerStore, CHILD_PAGE_SIZE } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
@@ -31,21 +31,6 @@ const MAX_STICKY_ROWS = 3
 
 // Type-ahead: keystrokes within this window accumulate into one search buffer.
 const TYPE_AHEAD_RESET_MS = 700
-
-// px metrics for the offscreen width estimate; keep in sync with the row markup.
-const TREE_INDENT_PX = 16
-const TREE_BASE_PADDING_PX = 8
-const TREE_CHEVRON_SLOT_PX = 16
-const TREE_ICON_SLOT_PX = 15
-const TREE_GAP_PX = 8
-const TREE_COUNT_EXTRA_PX = 36
-// The always-reserved copy-action slot on non-folder rows (w-5 + mr-1).
-const TREE_ACTION_SLOT_PX = 24
-const TREE_WIDTH_SAFETY_PX = 32
-// Widest plausible "Show N more · N hidden · show all" row.
-const TREE_MORE_ROW_PX = 280
-// Exactly measure only this many of the (approximately) widest rows.
-const WIDTH_CANDIDATES = 48
 
 /** Next focusable row index from `from` in `dir`; `from` when there is none. */
 function stepFocus(rows: TreeRow[], from: number, dir: 1 | -1): number {
@@ -157,77 +142,6 @@ export function TreeView() {
       if (Math.abs(h - rowHeight) > 0.5) setRowHeight(h)
     }
   }, [rowHeight])
-
-  // ── Content width ─────────────────────────────────────────────────────────
-  // The tree scrolls both axes and only mounts visible rows, so the content
-  // width must be computed, not laid out. One cheap approximate pass finds the
-  // few widest candidates; only those are measured exactly with canvas text
-  // metrics (measuring all 50k+ labels per rebuild would cost real time).
-  const [listMinWidth, setListMinWidth] = useState(0)
-  useLayoutEffect(() => {
-    if (rows.length === 0) {
-      setListMinWidth(0)
-      return
-    }
-    const approxOf = (row: TreeRow) => {
-      const labelLen =
-        row.kind === 'node' ? row.label.length :
-        row.kind === 'marker' ? row.message.length : 0
-      const countLen =
-        row.kind === 'node' && row.count !== undefined
-          ? row.count.toLocaleString().length : 0
-      let approx = row.depth * TREE_INDENT_PX + TREE_BASE_PADDING_PX + labelLen * 8
-      approx += row.kind === 'more'
-        ? TREE_MORE_ROW_PX
-        : TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2
-      if (row.kind === 'node' && row.nodeType !== 'folder') approx += TREE_ACTION_SLOT_PX
-      if (countLen > 0) approx += TREE_COUNT_EXTRA_PX + countLen * 8
-      return approx + TREE_WIDTH_SAFETY_PX
-    }
-
-    const candidates: { row: TreeRow; approx: number }[] = []
-    for (const row of rows) {
-      const approx = approxOf(row)
-      if (candidates.length < WIDTH_CANDIDATES) {
-        candidates.push({ row, approx })
-        continue
-      }
-      let minIdx = 0
-      for (let i = 1; i < candidates.length; i++) {
-        if (candidates[i].approx < candidates[minIdx].approx) minIdx = i
-      }
-      if (approx > candidates[minIdx].approx) candidates[minIdx] = { row, approx }
-    }
-
-    const canvas = document.createElement('canvas')
-    const context = canvas.getContext('2d')
-    const labelEl = scrollRef.current?.querySelector('.tree-node .tree-label')
-    const styleSource = labelEl ?? scrollRef.current
-    if (context && styleSource) {
-      const style = window.getComputedStyle(styleSource)
-      context.font = style.font || `${style.fontSize} ${style.fontFamily}`
-    }
-    const measureText = (text: string) => context?.measureText(text).width ?? text.length * 8
-
-    let widest = 0
-    for (const { row } of candidates) {
-      const leftPadding = row.depth * TREE_INDENT_PX + TREE_BASE_PADDING_PX
-      let width = leftPadding + TREE_WIDTH_SAFETY_PX
-      if (row.kind === 'node') {
-        width += TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2 + measureText(row.label)
-        if (row.nodeType !== 'folder') width += TREE_ACTION_SLOT_PX
-        if (row.count !== undefined) {
-          width += TREE_COUNT_EXTRA_PX + measureText(row.count.toLocaleString())
-        }
-      } else if (row.kind === 'marker') {
-        width += measureText(row.message)
-      } else {
-        width += TREE_CHEVRON_SLOT_PX + TREE_GAP_PX + TREE_MORE_ROW_PX
-      }
-      widest = Math.max(widest, Math.ceil(width))
-    }
-    setListMinWidth(prev => (Math.abs(prev - widest) > 0.5 ? widest : prev))
-  }, [rows])
 
   // ── Lazy composition chevrons ─────────────────────────────────────────────
   // Resolve real child counts for the composition ('obj:') rows currently in
@@ -455,8 +369,6 @@ export function TreeView() {
     const top = index * h
     const viewTop = scrollEl.scrollTop + stickyLenRef.current * h
     if (top >= viewTop && top + h <= scrollEl.scrollTop + scrollEl.clientHeight) return
-    // Vertical-only: scrollToIndex writes scrollTop and never scrollLeft, so a
-    // horizontally-scrolled tree stays put.
     virtualizer.scrollToIndex(index, { align: 'center' })
   }, [selectedId, rows, virtualizer])
 
@@ -633,17 +545,17 @@ export function TreeView() {
                   <span className="flex-shrink-0 flex items-center">
                     <TreeRowIcon row={row} />
                   </span>
-                  <span className="whitespace-nowrap text-sm truncate">{row.label}</span>
+                  <span className="flex-1 min-w-0 text-sm truncate">{row.label}</span>
                 </div>
               )
             })}
           </div>
         )}
 
-        {/* Tree body, scrolls both axes. The inner w-max wrapper grows to the
-            computed widest row so long labels/deep nesting extend a horizontal
-            scrollbar, while min-w-full keeps rows (highlights, count pills)
-            panel-wide when content fits. */}
+        {/* Tree body, vertical scroll only. Rows are exactly the panel width:
+            long labels truncate with an ellipsis (full name in the tooltip),
+            so the count pills stay pinned at the right edge at any panel
+            width, and widening the sidebar reveals more of each name. */}
         <div
           ref={scrollRef}
           onScroll={handleScroll}
@@ -652,17 +564,9 @@ export function TreeView() {
           role="tree"
           aria-label="Model tree"
           aria-activedescendant={focusedIndex !== null ? `tree-row-${focusedIndex}` : undefined}
-          className="h-full overflow-auto focus:outline-none"
+          className="h-full overflow-y-auto overflow-x-hidden focus:outline-none"
         >
-          {/* CSS max(): at least the panel width (rows, highlights and pills
-              always span it fully) and at least the measured widest row (long
-              offscreen labels still extend the horizontal scrollbar). A plain
-              minWidth px here would override min-w-full and let rows fall
-              short of the panel edge. */}
-          <div
-            className="w-max min-w-full"
-            style={listMinWidth > 0 ? { minWidth: `max(100%, ${listMinWidth}px)` } : undefined}
-          >
+          <div>
             <div style={{ paddingTop, paddingBottom }}>
               {virtualItems.map(vi => {
                 const row = rows[vi.index]
