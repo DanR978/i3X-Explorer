@@ -11,7 +11,6 @@ export default tseslint.config(
       'node_modules/**',
       'website/**',
       'scripts/**',
-      'preload.js',
     ],
   },
   ...tseslint.configs.recommended,
@@ -20,8 +19,7 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // 'warn' until the dedicated triage pass — this rule has never run here.
-      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/exhaustive-deps': 'error',
       // `_`-prefixed names mark intentional omissions (rest-spread key removal).
       '@typescript-eslint/no-unused-vars': [
         'error',
