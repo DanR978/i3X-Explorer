@@ -11,72 +11,16 @@ import type {
   ServerCapabilities
 } from './types'
 import { buildAuthHeaders } from './auth'
+import { classifyInfoResponse, extractV1BulkResults, extractVQT, normalizeV1Object } from './normalize'
+import type { ApiVersion } from './normalize'
 
 import type { Credentials } from '../stores/connection'
 
 export type ClientCredentials = Credentials
 
-// v0 = Alpha, v1-beta = v1 Beta, v1 = v1 Release (1.0+)
-export type ApiVersion = 'v0' | 'v1-beta' | 'v1'
-
-// #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
-// Extracts value/quality/timestamp from either standard format or nested Data.Value format
-// Standard: { value: X, quality: Y, timestamp: Z }
-// Nested value: { value: { Data: { Value: X, Quality: Y, Timestamp: Z }, Source: {...} } }
-function extractVQT(payload: Record<string, unknown>): { value: unknown; quality?: string; timestamp?: string } {
-  if (payload.value && typeof payload.value === 'object' && payload.value !== null) {
-    const valueObj = payload.value as Record<string, unknown>
-    if (valueObj.Data && typeof valueObj.Data === 'object') {
-      const data = valueObj.Data as Record<string, unknown>
-      return {
-        value: data.Value,
-        quality: data.Quality as string | undefined,
-        timestamp: data.Timestamp as string | undefined
-      }
-    }
-  }
-  return {
-    value: payload.value,
-    quality: payload.quality as string | undefined,
-    timestamp: payload.timestamp as string | undefined
-  }
-}
-
-// v1 object instances use typeElementId instead of typeId, and may omit namespaceUri.
-// As of commit 27f15c7, metadata fields (typeNamespaceUri, relationships, etc.) are
-// nested under raw.metadata rather than being flat on the object.
-// Normalize to the ObjectInstance shape used throughout the app.
-function normalizeV1Object(raw: Record<string, unknown>): ObjectInstance {
-  const metadata = (raw.metadata ?? {}) as Record<string, unknown>
-  // Beta called this extendedAttributes; 1.0 renamed it schemaExtensions. Accept both.
-  const schemaExtensions = (
-    metadata.schemaExtensions ?? metadata.extendedAttributes ??
-    raw.schemaExtensions ?? raw.extendedAttributes
-  ) as Record<string, unknown> | undefined
-  return {
-    elementId: raw.elementId as string,
-    displayName: raw.displayName as string,
-    typeId: ((raw.typeElementId ?? raw.typeId) as string) ?? '',
-    parentId: (raw.parentId as string | null) ?? null,
-    isComposition: (raw.isComposition as boolean) ?? false,
-    isExtended: (raw.isExtended as boolean) ?? false,
-    namespaceUri: ((raw.namespaceUri ?? metadata.typeNamespaceUri) as string) ?? '',
-    description: (metadata.description as string) ?? undefined,
-    relationships: (metadata.relationships ?? raw.relationships) as Record<string, unknown> | undefined,
-    sourceRelationship: raw.sourceRelationship as string | undefined,
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    ...(schemaExtensions ? { schemaExtensions } : {})
-  }
-}
-
-// v1 POST bulk responses: {success, results: [{success, elementId, result: T}]}
-// Returns the results array, or empty array if the shape doesn't match.
-function extractV1BulkResults<T>(raw: unknown): Array<{ success: boolean; elementId: string; result: T }> {
-  if (raw && typeof raw === 'object' && 'results' in (raw as object)) {
-    return ((raw as Record<string, unknown>).results as Array<{ success: boolean; elementId: string; result: T }>) ?? []
-  }
-  return []
-}
+// Re-exported so existing importers keep working; the declaration moved to
+// normalize.ts with the rest of the pure multi-version logic.
+export type { ApiVersion } from './normalize'
 
 export interface StreamConfig {
   url: string
@@ -270,30 +214,17 @@ export class I3XClient {
         }
       }
 
-      if (!response.ok) {
-        this.apiVersion = 'v0'
-        return
-      }
-
-      // Try to read a version field from the /info body.
-      // 1.0 servers are expected to advertise specVersion / version / apiVersion >= "1.0".
-      try {
-        const body = await response.json() as Record<string, unknown>
-        // v1 wraps the payload: {success, result: {...}}; also accept unwrapped bodies
-        const info = (body.result ?? body) as Record<string, unknown>
-        // Capture the capabilities matrix (mandatory in 1.0 ServerInfo).
-        // Stored for any server that provides it; consumers gate on getApiVersion() === 'v1'.
-        if (info.capabilities && typeof info.capabilities === 'object') {
-          this.capabilities = info.capabilities as ServerCapabilities
-        }
-        const serverVersion = String(info.serverVersion ?? '').toLowerCase()
-        const specRaw = (info.specVersion ?? info.version ?? info.apiVersion ?? '') as string
-        const specMajor = parseFloat(specRaw)
-        const isRelease = !isNaN(specMajor) && specMajor >= 1.0 && !serverVersion.includes('beta')
-        this.apiVersion = isRelease ? 'v1' : 'v1-beta'
-      } catch {
-        // /info responded OK but body isn't useful, treat as Beta
-        this.apiVersion = 'v1-beta'
+      // Interpretation lives in classifyInfoResponse (normalize.ts) so the
+      // version-detection rules are unit-testable; an unparseable body is
+      // signalled as `undefined` and classifies as Beta.
+      const body: unknown = response.ok
+        ? await response.json().catch(() => undefined)
+        : undefined
+      const { version, capabilities } = classifyInfoResponse({ ok: response.ok, body })
+      this.apiVersion = version
+      // Stored for any server that provides it; consumers gate on getApiVersion() === 'v1'.
+      if (capabilities) {
+        this.capabilities = capabilities
       }
     } catch (err) {
       // A hung or unreachable server is not a v0 server. Reporting it as one
