@@ -4,6 +4,7 @@ import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient, type I3XClient } from '../../api/client'
 import { SSESubscription, PollingSubscription, HttpStatusError, isSubscriptionGoneError } from '../../api/subscription'
+import { performRecovery, type RecoveryHarness } from './recovery'
 import type { SyncResponseItem } from '../../api/types'
 
 /**
@@ -50,7 +51,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
 
   const sseRef = useRef<SSESubscription | null>(null)
   const pollingRef = useRef<PollingSubscription | null>(null)
-  const recoveryAttemptsRef = useRef(0)
+  const recoveryRef = useRef<RecoveryHarness>({ isRecovering: false, attempts: 0, lastSuccessAt: 0 })
   const [usePolling, setUsePolling] = useState(false) // Default to SSE streaming
 
   // `startStream` reads this synchronously from a ref so a transport switch made
@@ -78,7 +79,8 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
   }, [isConnected])
 
   const handleDataUpdate = useCallback((items: SyncResponseItem[]) => {
-    recoveryAttemptsRef.current = 0
+    // Data flowing is the strongest health signal — refund the recovery budget.
+    recoveryRef.current.attempts = 0
     const { updateLiveValue } = useSubscriptionsStore.getState()
     items.forEach(item => {
       updateLiveValue({
@@ -96,47 +98,23 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
   // handler triggers recovery. A ref breaks the cycle.
   const startStreamRef = useRef<(subscriptionId: string) => Promise<void>>()
 
+  // The concurrency rules (re-entrancy guard, transport teardown, item
+  // carry-over, attempt budget) live in performRecovery — see recovery.ts.
   const handleRecovery = useCallback(async (oldSubscriptionId: string) => {
     const client = getClient()
     if (!client) return
 
-    const store = useSubscriptionsStore.getState()
-
-    if (recoveryAttemptsRef.current >= 3) {
-      console.warn(`Subscription ${oldSubscriptionId} recovery aborted after 3 attempts`)
-      store.setStreaming(oldSubscriptionId, false)
-      return
-    }
-    recoveryAttemptsRef.current++
-    console.warn(`Subscription ${oldSubscriptionId} expired on server, recovering (attempt ${recoveryAttemptsRef.current})...`)
-
-    const oldSub = store.subscriptions.get(oldSubscriptionId)
-    const monitoredItems = oldSub?.monitoredItems ?? []
-
-    monitoredItems.forEach(elementId => {
-      store.removeMonitoredItem(oldSubscriptionId, elementId)
+    await performRecovery(oldSubscriptionId, {
+      client,
+      stopTransports: () => {
+        sseRef.current?.disconnect()
+        sseRef.current = null
+        pollingRef.current?.stop()
+        pollingRef.current = null
+      },
+      startStream: async id => { await startStreamRef.current?.(id) },
+      harness: recoveryRef.current
     })
-    store.removeSubscription(oldSubscriptionId)
-    // Best-effort delete on the server, the subscription is likely already gone (404/410)
-    // but this cleans up the clientId entry from the client-side map.
-    try { await client.deleteSubscription(oldSubscriptionId) } catch { /* already gone */ }
-
-    try {
-      const { subscriptionId: newId } = await client.createSubscription()
-      if (monitoredItems.length > 0) {
-        await client.registerMonitoredItems(newId, monitoredItems)
-      }
-      useSubscriptionsStore.getState().addSubscription({
-        id: newId,
-        createdAt: new Date().toISOString(),
-        monitoredItems,
-        isStreaming: false
-      })
-      useSubscriptionsStore.getState().setActiveSubscription(newId)
-      await startStreamRef.current?.(newId)
-    } catch (err) {
-      console.error('Subscription recovery failed:', err)
-    }
   }, [])
 
   const startPolling = useCallback((subscriptionId: string, client: I3XClient) => {
