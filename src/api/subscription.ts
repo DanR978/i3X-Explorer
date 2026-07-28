@@ -1,6 +1,7 @@
 import type { SyncResponseItem } from './types'
 import type { ClientCredentials } from './client'
 import { buildAuthHeaders } from './auth'
+import { extractVQT } from './normalize'
 
 export type SubscriptionCallback = (items: SyncResponseItem[]) => void
 export type ErrorCallback = (error: Error) => void
@@ -18,31 +19,6 @@ export class HttpStatusError extends Error {
 export function isSubscriptionGoneError(error: Error): boolean {
   if (error instanceof HttpStatusError) return error.status === 404 || error.status === 410
   return error.message.startsWith('HTTP 404') || error.message.startsWith('HTTP 410')
-}
-
-// #TODO: Discuss this nested payload format suggested by Dylan DuFresne as a potential alternative
-// Extracts value/quality/timestamp from either standard format or nested Data.Value format
-// Standard: { value: X, quality: Y, timestamp: Z }
-// Nested value: { value: { Data: { Value: X, Quality: Y, Timestamp: Z }, Source: {...} } }
-function extractVQT(payload: Record<string, unknown>): { value: unknown; quality?: string; timestamp?: string } {
-  // Check if the value field contains the nested Data structure
-  if (payload.value && typeof payload.value === 'object' && payload.value !== null) {
-    const valueObj = payload.value as Record<string, unknown>
-    if (valueObj.Data && typeof valueObj.Data === 'object') {
-      const data = valueObj.Data as Record<string, unknown>
-      return {
-        value: data.Value,
-        quality: data.Quality as string | undefined,
-        timestamp: data.Timestamp as string | undefined
-      }
-    }
-  }
-  // Standard format
-  return {
-    value: payload.value,
-    quality: payload.quality as string | undefined,
-    timestamp: payload.timestamp as string | undefined
-  }
 }
 
 export class SSESubscription {

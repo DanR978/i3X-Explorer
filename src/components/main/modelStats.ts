@@ -247,9 +247,9 @@ function computeDepths(
 /**
  * The `limit` largest items by `score`, highest first. A linear scan keeping a
  * small sorted buffer, sorting the whole array to read the top eight is O(n log n)
- * for nothing, and this list can be 100k long.
+ * for nothing, and this list can be 100k long. (Exported for tests.)
  */
-function topBy<T>(items: T[], score: (item: T) => number, limit: number): T[] {
+export function topBy<T>(items: T[], score: (item: T) => number, limit: number): T[] {
   const best: T[] = []
 
   for (const item of items) {
