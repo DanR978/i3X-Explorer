@@ -74,6 +74,11 @@ interface ConnectionState {
   showConnectionDialog: boolean
   recentUrls: string[]
   ignoreCertErrors: boolean
+  // Connect-flow modals (not persisted). They live here rather than in Toolbar
+  // state so the connect flow itself (services/connection.ts) can raise them
+  // from any call site — Toolbar's Connect button or the dialog's reconnect.
+  redirectNotice: { from: string; to: string } | null
+  v0Blocked: boolean
 
   setServerUrl: (url: string) => void
   setCredentials: (credentials: Credentials | null) => void
@@ -85,6 +90,8 @@ interface ConnectionState {
   setShowConnectionDialog: (show: boolean) => void
   addRecentUrl: (url: string) => void
   setIgnoreCertErrors: (ignore: boolean) => void
+  setRedirectNotice: (notice: { from: string; to: string } | null) => void
+  setV0Blocked: (blocked: boolean) => void
   disconnect: () => void
 }
 
@@ -100,6 +107,8 @@ export const useConnectionStore = create<ConnectionState>()(
       showConnectionDialog: false,
       recentUrls: ['https://api.i3x.dev/v1', 'http://localhost:8080'],
       ignoreCertErrors: false,
+      redirectNotice: null,
+      v0Blocked: false,
 
       setServerUrl: (url) => set({ serverUrl: url }),
       setCredentials: (credentials) => set({ credentials }),
@@ -124,6 +133,8 @@ export const useConnectionStore = create<ConnectionState>()(
       setError: (error) => set({ error, isConnecting: false }),
       setShowConnectionDialog: (show) => set({ showConnectionDialog: show }),
       setIgnoreCertErrors: (ignore) => set({ ignoreCertErrors: ignore }),
+      setRedirectNotice: (redirectNotice) => set({ redirectNotice }),
+      setV0Blocked: (v0Blocked) => set({ v0Blocked }),
 
       addRecentUrl: (url) => {
         const { recentUrls } = get()

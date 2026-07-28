@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
-import { useSubscriptionsStore } from '../../stores/subscriptions'
-import { createClient, destroyClient, getClient } from '../../api/client'
+import { performConnect, performDisconnect } from '../../services/connection'
 import { SearchModal } from '../search/SearchModal'
 import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon } from '../common/icons'
 import iconPng from '/icon.png'
@@ -24,8 +23,6 @@ const POLL_OPTIONS = [
 
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [showV0Blocked, setShowV0Blocked] = useState(false)
-  const [redirectNotice, setRedirectNotice] = useState<{ from: string; to: string } | null>(null)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
 
@@ -37,29 +34,22 @@ export function Toolbar() {
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
   const {
     serverUrl,
-    credentials,
-    getCredentialsForUrl,
-    saveCredentialsForUrl,
-    setCredentials,
-    setServerUrl,
     isConnected,
     isConnecting,
     error,
     setShowConnectionDialog,
-    setConnected,
-    setConnecting,
-    setError,
-    addRecentUrl,
-    disconnect: disconnectStore
+    redirectNotice,
+    setRedirectNotice,
+    v0Blocked,
+    setV0Blocked
   } = useConnectionStore()
 
-  const { setNamespaces, setObjectTypes, setAllObjects, setHierarchicalRoots, setLoading, reset: resetExplorer, pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore()
+  const { pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore()
   // Clearing the selection is what "Home" means, the main panel renders its
   // Home shell whenever nothing is selected.
   const showHome = () => selectItem(null)
   const canGoBack = useExplorerStore(s => s.historyIndex > 0)
   const canGoForward = useExplorerStore(s => s.historyIndex < s.history.length - 1)
-  const { clearAll: clearSubscriptions } = useSubscriptionsStore()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -89,86 +79,10 @@ export function Toolbar() {
     return () => window.removeEventListener('mouseup', handleMouseUp)
   }, [goBack, goForward])
 
-  const handleConnect = async () => {
-    setConnecting(true)
-    setError(null)
-    setRedirectNotice(null)
-
-    // Use saved credentials if none are currently set
-    const activeCredentials = credentials ?? getCredentialsForUrl(serverUrl)
-    if (activeCredentials && !credentials) {
-      setCredentials(activeCredentials)
-    }
-
-    try {
-      const client = createClient(serverUrl, activeCredentials)
-      const success = await client.testConnection()
-
-      if (success) {
-        const detectedVersion = client.getApiVersion()
-        if (detectedVersion === 'v0') {
-          destroyClient()
-          setConnecting(false)
-          setShowV0Blocked(true)
-          return
-        }
-        setConnected(true)
-
-        // The server may have redirected during version detection (e.g. http → https);
-        // the client adopted the final URL. Sync it back to the store so the toolbar
-        // shows the real URL, future connects skip the redirect, and saved credentials
-        // follow the new URL. Compare against the trailing-slash-stripped input since
-        // the client constructor strips it too.
-        const finalUrl = client.getBaseUrl()
-        if (finalUrl !== serverUrl.replace(/\/$/, '')) {
-          setServerUrl(finalUrl)
-          if (activeCredentials) {
-            saveCredentialsForUrl(finalUrl, activeCredentials)
-          }
-          setRedirectNotice({ from: serverUrl, to: finalUrl })
-        }
-        addRecentUrl(finalUrl)
-
-        // Load initial data
-        setLoading(true)
-        const [namespaces, objectTypes] = await Promise.all([
-          client.getNamespaces(),
-          client.getObjectTypes()
-        ])
-        setNamespaces(namespaces)
-        setObjectTypes(objectTypes)
-        setLoading(false)
-
-        // Fire-and-forget: prefetch flat object list + hierarchy roots so the
-        // tree's [count] indicators show before the user expands those folders.
-        // Doesn't block the connect flow; expansion later refetches with
-        // composition resolution, so chevron accuracy isn't affected.
-        client.getObjects().then(setAllObjects).catch(() => {})
-        client.getObjects(undefined, false, true).then(setHierarchicalRoots).catch(() => {})
-      } else {
-        setError('Failed to connect to server')
-        destroyClient()
-      }
-    } catch (err) {
-      setLoading(false)
-      setError(err instanceof Error ? err.message : 'Connection failed')
-      destroyClient()
-    }
-  }
-
-  const handleDisconnect = async () => {
-    const client = getClient()
-    if (client) {
-      const ids = Array.from(useSubscriptionsStore.getState().subscriptions.keys())
-      await Promise.allSettled(ids.map(id => client.deleteSubscription(id)))
-    }
-
-    destroyClient()
-    disconnectStore()
-    resetExplorer()
-    clearSubscriptions()
-    setRedirectNotice(null)
-  }
+  // The flows live in services/connection.ts so the connection dialog can
+  // re-run them on Save-while-connected.
+  const handleConnect = () => performConnect()
+  const handleDisconnect = () => performDisconnect()
 
   return (
     <div className="h-12 bg-i3x-surface border-b border-i3x-border flex items-center px-3 gap-2 sm:gap-3 drag-region flex-shrink-0">
@@ -382,7 +296,7 @@ export function Toolbar() {
 
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
 
-      {showV0Blocked && (
+      {v0Blocked && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-i3x-surface rounded-lg shadow-xl w-full max-w-md border border-i3x-border">
             <div className="px-4 py-3 border-b border-i3x-border flex items-center gap-2">
@@ -406,7 +320,7 @@ export function Toolbar() {
             </div>
             <div className="px-4 py-3 border-t border-i3x-border flex justify-end">
               <button
-                onClick={() => setShowV0Blocked(false)}
+                onClick={() => setV0Blocked(false)}
                 className="px-4 py-1.5 text-sm bg-i3x-primary text-white rounded transition-colors hover:bg-i3x-primary/80"
               >
                 OK
