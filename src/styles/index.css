@@ -135,45 +135,58 @@ html, body, #root {
 }
 
 /* ── i3X logo loader ──────────────────────────────────────────────────────── */
-/* The emblem rebuilt in I3xLoader.tsx. Animated paths carry pathLength="100",
-   so the dash math below is in percent of each path regardless of its true
-   length. Mesh lines perpetually weave — draw in, hold, sweep out — staggered
-   per line by negative inline animation-delays, over a static blurred ghost
-   that keeps the emblem whole; a bright arc chases around the ring. */
+/* I3xLoader.tsx animates the app icon itself (public/icon-512.png): the
+   emblem slowly spins, a green glow breathes behind it, and two gradient
+   comet arcs orbit it in opposite directions. The arcs carry pathLength="100",
+   so the dash math is in percent of the circle regardless of its radius. */
+
+.i3x-loader-img {
+  animation: i3x-logo-spin 7s linear infinite;
+}
+
+.i3x-loader-glow {
+  opacity: 0.7;
+  background: radial-gradient(closest-side, rgb(var(--i3x-success) / 0.45), transparent 72%);
+  animation: i3x-glow-breathe 2.4s ease-in-out infinite;
+}
 
 .i3x-loader-ring {
-  stroke-dasharray: 30 70;
+  stroke-dasharray: 24 76;
   animation: i3x-ring-chase 1.8s linear infinite;
 }
 
-.i3x-loader-mesh path {
-  stroke-dasharray: 100 100;
-  animation: i3x-mesh-draw 2.8s ease-in-out infinite;
+.i3x-loader-ring-2 {
+  opacity: 0.45;
+  animation-name: i3x-ring-chase-rev;
 }
 
-/* One dash period (30+70=100) per cycle, so the loop point is seamless. */
+@keyframes i3x-logo-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes i3x-glow-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+
+/* One dash period (24+76=100) per cycle, so the loop point is seamless. */
 @keyframes i3x-ring-chase {
   to { stroke-dashoffset: -100; }
 }
 
-@keyframes i3x-mesh-draw {
-  0%   { stroke-dashoffset: 100; }  /* hidden: gap covers the path */
-  30%  { stroke-dashoffset: 0; }    /* fully drawn */
-  75%  { stroke-dashoffset: 0; }    /* hold — most lines visible at any moment */
-  100% { stroke-dashoffset: -100; } /* sweep out through the far end */
+@keyframes i3x-ring-chase-rev {
+  to { stroke-dashoffset: 100; }
 }
 
-/* Reduced motion: freeze the mark fully drawn — the label carries the state. */
+/* Reduced motion: static logo and glow, no orbiters — the label carries the
+   state. */
 @media (prefers-reduced-motion: reduce) {
-  .i3x-loader-ring,
-  .i3x-loader-mesh path {
+  .i3x-loader-img,
+  .i3x-loader-glow {
     animation: none;
   }
   .i3x-loader-ring {
-    stroke-dasharray: none;
-  }
-  .i3x-loader-mesh path {
-    stroke-dashoffset: 0;
+    display: none;
   }
 }
 
