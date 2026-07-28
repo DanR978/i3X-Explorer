@@ -3,6 +3,7 @@ import type { ObjectInstance, LastKnownValue } from '../../api/types'
 import { getClient } from '../../api/client'
 import { useExplorerStore } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
+import { useSubscriptionTransport } from '../subscriptions/SubscriptionTransport'
 import { Breadcrumb } from './Breadcrumb'
 import { OverviewTab } from './tabs/OverviewTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
@@ -51,6 +52,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
 
   const [isSubscribing, setIsSubscribing] = useState(false)
   const [subscribeError, setSubscribeError] = useState<string | null>(null)
+  const { startStream } = useSubscriptionTransport()
 
   // Read subscription state through getState() inside the handler rather than a
   // hook: subscribing to the store here would re-render the whole detail view on
@@ -119,6 +121,14 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
       // Register this object. If this throws, the catch block cleans up
       await client.registerMonitoredItems(subscriptionId, [object.elementId])
       useSubscriptionsStore.getState().addMonitoredItem(subscriptionId, object.elementId)
+      // Start the transport unless it's already live — without this the drawer
+      // opens on "Waiting…" until Start Stream is clicked manually. Guarded
+      // because startStream is not idempotent (it tears down and reopens the
+      // transport); a live stream carries newly registered items as-is.
+      const sub = useSubscriptionsStore.getState().subscriptions.get(subscriptionId)
+      if (!sub?.isStreaming) {
+        await startStream(subscriptionId)
+      }
       // Reveal the global drawer so the new monitored item is visible immediately.
       useSubscriptionsStore.getState().setSubscriptionsOpen(true)
     } catch (err) {
@@ -126,7 +136,10 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
       setSubscribeError(msg)
       console.error('Failed to subscribe:', err)
 
-      // Roll back any subscription we just created so it doesn't sit empty in the UI
+      // Roll back any subscription we just created so it doesn't sit empty in
+      // the UI. This assumes the failure came from create/register — if
+      // startStream ever becomes throwing, revisit so a healthy subscription
+      // isn't deleted over a transport hiccup.
       if (newlyCreatedSubId) {
         useSubscriptionsStore.getState().removeSubscription(newlyCreatedSubId)
         try { await client.deleteSubscription(newlyCreatedSubId) } catch { /* best-effort */ }
