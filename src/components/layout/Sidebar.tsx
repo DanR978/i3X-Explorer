@@ -4,8 +4,11 @@ import { useExplorerStore } from '../../stores/explorer'
 import { TreeView } from '../tree/TreeView'
 
 export function Sidebar() {
-  const { isConnected } = useConnectionStore()
-  const { isLoading, sidebarCollapsed } = useExplorerStore()
+  // Narrow selectors: a bare store hook re-renders on every write, and this
+  // component re-renders the unmemoized TreeView with it.
+  const isConnected = useConnectionStore(s => s.isConnected)
+  const isLoading = useExplorerStore(s => s.isLoading)
+  const sidebarCollapsed = useExplorerStore(s => s.sidebarCollapsed)
   const [width, setWidth] = useState(288) // 72 * 4 = 288px (w-72)
   const [isResizing, setIsResizing] = useState(false)
 
@@ -49,10 +52,10 @@ export function Sidebar() {
       className="bg-i3x-surface border-r border-i3x-border flex"
       style={{ width: `${width}px`, minWidth: '224px', maxWidth: '480px' }}
     >
-      {/* Tree content, TreeView owns its own scroll area (both axes). No
-          horizontal padding: rows span the full panel width (their highlights,
-          indent guides and count pills reach the edges); the filter input
-          carries its own inset. */}
+      {/* Tree content, TreeView owns its own (vertical) scroll area; long
+          labels truncate. No horizontal padding: rows span the full panel
+          width (their highlights, indent guides and count pills reach the
+          edges); the filter input carries its own inset. */}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden py-2 flex flex-col">
         {!isConnected ? (
           <div className="flex items-center justify-center h-full text-i3x-text-muted text-sm">

@@ -509,10 +509,9 @@ export function TreeView() {
 
   return (
     <div className="flex flex-col h-full min-h-0 text-i3x-text">
-      {/* Filter input, fixed header so it stays put (and full-width) while the
-          tree body scrolls horizontally. The sidebar gives the tree its full
-          width edge-to-edge; the input carries its own side padding while rows
-          bleed to the panel edges. */}
+      {/* Filter input, fixed header above the scrolling tree body. The sidebar
+          gives the tree its full width edge-to-edge; the input carries its own
+          side padding while rows bleed to the panel edges. */}
       <div className="shrink-0 bg-i3x-surface px-2 pb-2 mb-1">
         <input
           type="text"
@@ -524,8 +523,8 @@ export function TreeView() {
       </div>
 
       <div className="relative flex-1 min-h-0">
-        {/* Sticky ancestor header: pinned to the viewport, unaffected by
-            horizontal scroll, above the windowed rows. */}
+        {/* Sticky ancestor header: pinned to the viewport above the windowed
+            rows (right-2 keeps it clear of the vertical scrollbar). */}
         {stickyChain.length > 0 && (
           <div className="absolute top-0 left-0 right-2 z-10 border-b border-i3x-border bg-i3x-surface/95 backdrop-blur-[2px] shadow-sm overflow-hidden">
             {stickyChain.map(index => {
@@ -566,9 +565,8 @@ export function TreeView() {
           aria-activedescendant={focusedIndex !== null ? `tree-row-${focusedIndex}` : undefined}
           className="h-full overflow-y-auto overflow-x-hidden focus:outline-none"
         >
-          <div>
-            <div style={{ paddingTop, paddingBottom }}>
-              {virtualItems.map(vi => {
+          <div style={{ paddingTop, paddingBottom }}>
+            {virtualItems.map(vi => {
                 const row = rows[vi.index]
                 const parentRow = row.parentIndex >= 0 ? rows[row.parentIndex] : undefined
                 const entering =
@@ -629,7 +627,6 @@ export function TreeView() {
                   </div>
                 )
               })}
-            </div>
           </div>
 
           {!hasNamespaces && (

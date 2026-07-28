@@ -4,10 +4,18 @@ import { SparklesIcon } from '../common/icons'
 const GITHUB_API_URL = 'https://api.github.com/repos/ace-technologies-inc/i3X-Explorer/releases/latest'
 const GITHUB_RELEASES_URL = 'https://github.com/ace-technologies-inc/i3X-Explorer/releases'
 
-function isNewerVersion(current: string, candidate: string): boolean {
-  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number)
-  const [cMaj, cMin, cPatch] = parse(current)
-  const [nMaj, nMin, nPatch] = parse(candidate)
+export function isNewerVersion(current: string, candidate: string): boolean {
+  // Strip a leading "v" and any prerelease suffix; missing parts count as 0.
+  // So "v1.1" reads as 1.1.0, and "v1.1.0-rc1" as 1.1.0 (an rc would nag a
+  // 1.0.0 user — fine for a repo that only publishes stable releases; the old
+  // Number() parse turned both cases into NaN and never offered them at all).
+  const parse = (v: string) =>
+    v.replace(/^v/, '').split('-')[0].split('.').map(part => {
+      const n = parseInt(part, 10)
+      return Number.isNaN(n) ? 0 : n
+    })
+  const [cMaj = 0, cMin = 0, cPatch = 0] = parse(current)
+  const [nMaj = 0, nMin = 0, nPatch = 0] = parse(candidate)
   if (nMaj !== cMaj) return nMaj > cMaj
   if (nMin !== cMin) return nMin > cMin
   return nPatch > cPatch
@@ -17,12 +25,14 @@ export function UpdateChecker() {
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
 
   useEffect(() => {
-    localStorage.removeItem('i3x-update-dismissed')
     fetch(GITHUB_API_URL)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         const tag = data?.tag_name as string | undefined
         if (!tag) return
+        // A dismissed version stays dismissed across launches; a newer
+        // release than the dismissed one nags again.
+        if (localStorage.getItem('i3x-update-dismissed') === tag) return
         if (isNewerVersion(__APP_VERSION__, tag)) setLatestVersion(tag)
       })
       .catch(() => {})
@@ -30,7 +40,10 @@ export function UpdateChecker() {
 
   if (!latestVersion) return null
 
-  const dismiss = () => setLatestVersion(null)
+  const dismiss = () => {
+    localStorage.setItem('i3x-update-dismissed', latestVersion)
+    setLatestVersion(null)
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
