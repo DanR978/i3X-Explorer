@@ -3,6 +3,7 @@ import { useConnectionStore } from '../../../stores/connection'
 import { getClient } from '../../../api/client'
 import type { HistoricalValue, ObjectInstance } from '../../../api/types'
 import { Card } from '../primitives'
+import { Spinner } from '../../common/Spinner'
 
 interface HistoryDataPoint {
   timestamp: string
@@ -189,13 +190,20 @@ export function HistoryTab({ object }: { object: ObjectInstance }) {
           type="button"
           onClick={fetchHistory}
           disabled={isLoading || !isConnected || customIncomplete}
-          className="px-3 py-1 text-xs bg-i3x-primary text-white rounded-lg hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+          className="flex items-center gap-1.5 px-3 py-1 text-xs bg-i3x-primary text-white rounded-lg hover:bg-i3x-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
-          {isLoading ? 'Loading…' : hasLoaded ? 'Reload' : 'Load History'}
+          {isLoading ? <><Spinner size={11} /> Loading…</> : hasLoaded ? 'Reload' : 'Load History'}
         </button>
       </div>
 
       {error && <p className="text-xs text-i3x-error">{error}</p>}
+
+      {!error && historyData.length === 0 && isLoading && (
+        <p className="flex items-center gap-2 text-xs text-i3x-text-muted py-6">
+          <Spinner size={13} />
+          Loading history…
+        </p>
+      )}
 
       {!error && historyData.length === 0 && !isLoading && (
         <p className="text-xs text-i3x-text-muted py-6">

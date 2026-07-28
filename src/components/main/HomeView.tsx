@@ -15,6 +15,7 @@ export function HomeView() {
   const allObjects = useExplorerStore(state => state.allObjects)
   const objectTypes = useExplorerStore(state => state.objectTypes)
   const namespaces = useExplorerStore(state => state.namespaces)
+  const isLoading = useExplorerStore(state => state.isLoading)
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-i3x-bg">
@@ -30,6 +31,7 @@ export function HomeView() {
         objects={allObjects}
         objectTypes={objectTypes}
         namespaceCount={namespaces.length}
+        isLoading={isLoading}
       />
     </div>
   )

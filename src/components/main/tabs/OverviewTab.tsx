@@ -1,6 +1,7 @@
 import type { ObjectInstance, LastKnownValue } from '../../../api/types'
 import { Chevron } from '../../common/Chevron'
 import { RefreshIcon } from '../../common/icons'
+import { Spinner } from '../../common/Spinner'
 import { JsonViewer } from '../../details/JsonViewer'
 import { ValueDisplay } from '../../details/ValueDisplay'
 import { Card, Field, SegmentedControl } from '../primitives'
@@ -77,7 +78,7 @@ export function OverviewTab({
               disabled={isLoadingValue}
               className="flex items-center gap-1 text-xs text-i3x-primary hover:text-i3x-primary/80 disabled:opacity-50 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
             >
-              {isLoadingValue ? 'Loading…' : <><RefreshIcon size={11} /> Refresh</>}
+              {isLoadingValue ? <><Spinner size={11} /> Loading…</> : <><RefreshIcon size={11} /> Refresh</>}
             </button>
           </>
         }
@@ -90,7 +91,14 @@ export function OverviewTab({
           <ValueDisplay value={value} view={valueView} />
         ) : (
           <div className="px-3 py-2 bg-i3x-bg border border-i3x-border rounded-lg text-sm text-i3x-text-muted">
-            {isLoadingValue ? 'Loading…' : 'No value available'}
+            {isLoadingValue ? (
+              <span className="flex items-center gap-2">
+                <Spinner size={13} />
+                Loading value…
+              </span>
+            ) : (
+              'No value available'
+            )}
           </div>
         )}
 

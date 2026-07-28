@@ -134,6 +134,49 @@ html, body, #root {
   .tree-row-enter { animation: none; }
 }
 
+/* ── i3X logo loader ──────────────────────────────────────────────────────── */
+/* The emblem rebuilt in I3xLoader.tsx. Animated paths carry pathLength="100",
+   so the dash math below is in percent of each path regardless of its true
+   length. Mesh lines perpetually weave — draw in, hold, sweep out — staggered
+   per line by negative inline animation-delays, over a static blurred ghost
+   that keeps the emblem whole; a bright arc chases around the ring. */
+
+.i3x-loader-ring {
+  stroke-dasharray: 30 70;
+  animation: i3x-ring-chase 1.8s linear infinite;
+}
+
+.i3x-loader-mesh path {
+  stroke-dasharray: 100 100;
+  animation: i3x-mesh-draw 2.8s ease-in-out infinite;
+}
+
+/* One dash period (30+70=100) per cycle, so the loop point is seamless. */
+@keyframes i3x-ring-chase {
+  to { stroke-dashoffset: -100; }
+}
+
+@keyframes i3x-mesh-draw {
+  0%   { stroke-dashoffset: 100; }  /* hidden: gap covers the path */
+  30%  { stroke-dashoffset: 0; }    /* fully drawn */
+  75%  { stroke-dashoffset: 0; }    /* hold — most lines visible at any moment */
+  100% { stroke-dashoffset: -100; } /* sweep out through the far end */
+}
+
+/* Reduced motion: freeze the mark fully drawn — the label carries the state. */
+@media (prefers-reduced-motion: reduce) {
+  .i3x-loader-ring,
+  .i3x-loader-mesh path {
+    animation: none;
+  }
+  .i3x-loader-ring {
+    stroke-dasharray: none;
+  }
+  .i3x-loader-mesh path {
+    stroke-dashoffset: 0;
+  }
+}
+
 /* Value flash animation */
 @keyframes value-flash {
   0%   { background-color: rgb(var(--i3x-success) / 0.3); }

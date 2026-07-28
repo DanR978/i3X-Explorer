@@ -2,6 +2,40 @@ import { useState, useCallback, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { TreeView } from '../tree/TreeView'
+import { I3xLoader } from '../common/I3xLoader'
+
+/**
+ * Placeholder rows shown while the catalog loads: [indent level, width %].
+ * Fixed values (not random) so the skeleton doesn't reshuffle on re-render.
+ */
+const SKELETON_ROWS: Array<[number, number]> = [
+  [0, 62], [1, 48], [2, 66], [2, 42], [1, 56], [2, 50],
+  [3, 38], [0, 58], [1, 44], [1, 60], [2, 40], [0, 52],
+]
+
+/** Pulsing stand-in for the tree while the object catalog is being fetched. */
+function TreeSkeleton() {
+  return (
+    <div className="flex-1 min-h-0 overflow-hidden px-2" role="status" aria-label="Loading model">
+      <div className="flex flex-col items-center gap-2 px-2 py-4 text-xs text-i3x-text-muted">
+        <I3xLoader size={56} />
+        Loading model…
+      </div>
+      <div className="mt-1 space-y-2 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+        {SKELETON_ROWS.map(([indent, width], i) => (
+          <div
+            key={i}
+            className="flex items-center gap-2"
+            style={{ paddingLeft: `${8 + indent * 16}px` }}
+          >
+            <div className="h-3.5 w-3.5 rounded bg-i3x-text/10 shrink-0" />
+            <div className="h-3 rounded bg-i3x-text/10" style={{ width: `${width}%` }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function Sidebar() {
   // Narrow selectors: a bare store hook re-renders on every write, and this
@@ -62,9 +96,7 @@ export function Sidebar() {
             Connect to a server to browse
           </div>
         ) : isLoading ? (
-          <div className="flex items-center justify-center h-full text-i3x-text-muted text-sm">
-            Loading...
-          </div>
+          <TreeSkeleton />
         ) : (
           <TreeView />
         )}
