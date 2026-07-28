@@ -161,7 +161,11 @@ export function TreeNode({
             onClick={handleCopy}
             title={nodeType === 'namespace' ? 'Copy namespace URI' : 'Copy element ID'}
             aria-label={nodeType === 'namespace' ? 'Copy namespace URI' : 'Copy element ID'}
-            className="hidden group-hover:grid w-5 h-5 place-items-center rounded mr-1 text-i3x-text-muted hover:text-i3x-primary hover:bg-i3x-text/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+            // `invisible`, not `hidden`: the slot must keep its layout space
+            // when not hovered. The tree wrapper is w-max (sized by the widest
+            // row), so a button that only exists on hover would widen that row
+            // and shove every right-aligned count pill sideways.
+            className="invisible group-hover:visible focus:visible grid w-5 h-5 place-items-center rounded mr-1 text-i3x-text-muted hover:text-i3x-primary hover:bg-i3x-text/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
           >
             {copied
               ? <CheckIcon size={12} className="text-i3x-success" />

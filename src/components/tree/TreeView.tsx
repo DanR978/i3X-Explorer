@@ -8,7 +8,6 @@ import { TreeNode, TreeMoreNode, TreeRowIcon, IndentGuides } from './TreeNode'
 import { buildTreeMenu } from './treeMenu'
 import { Chevron } from '../common/Chevron'
 import { ContextMenu, type MenuEntry } from '../common/ContextMenu'
-import { CollapseAllIcon, TargetIcon } from '../common/icons'
 import { useElementNavigation } from '../main/navigation'
 import {
   buildTreeRows,
@@ -40,6 +39,8 @@ const TREE_CHEVRON_SLOT_PX = 16
 const TREE_ICON_SLOT_PX = 15
 const TREE_GAP_PX = 8
 const TREE_COUNT_EXTRA_PX = 36
+// The always-reserved copy-action slot on non-folder rows (w-5 + mr-1).
+const TREE_ACTION_SLOT_PX = 24
 const TREE_WIDTH_SAFETY_PX = 32
 // Widest plausible "Show N more · N hidden · show all" row.
 const TREE_MORE_ROW_PX = 280
@@ -179,6 +180,7 @@ export function TreeView() {
       approx += row.kind === 'more'
         ? TREE_MORE_ROW_PX
         : TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2
+      if (row.kind === 'node' && row.nodeType !== 'folder') approx += TREE_ACTION_SLOT_PX
       if (countLen > 0) approx += TREE_COUNT_EXTRA_PX + countLen * 8
       return approx + TREE_WIDTH_SAFETY_PX
     }
@@ -213,6 +215,7 @@ export function TreeView() {
       let width = leftPadding + TREE_WIDTH_SAFETY_PX
       if (row.kind === 'node') {
         width += TREE_CHEVRON_SLOT_PX + TREE_ICON_SLOT_PX + TREE_GAP_PX * 2 + measureText(row.label)
+        if (row.nodeType !== 'folder') width += TREE_ACTION_SLOT_PX
         if (row.count !== undefined) {
           width += TREE_COUNT_EXTRA_PX + measureText(row.count.toLocaleString())
         }
@@ -589,56 +592,23 @@ export function TreeView() {
     expandNode(HIERARCHICAL_FOLDER_ID)
   }, [searchQuery])
 
-  // ── Micro-toolbar actions ─────────────────────────────────────────────────
-  const collapseAll = useCallback(() => {
-    useExplorerStore.setState({ expandedNodes: new Set(), childPageLimits: new Map() })
-    setFocusedIndex(null)
-  }, [])
-
-  const locateSelection = useCallback(() => {
-    if (!selectedId) return
-    const index = rows.findIndex(r => r.kind === 'node' && r.id === selectedId)
-    if (index === -1) return
-    setFocusedIndex(index)
-    virtualizer.scrollToIndex(index, { align: 'center' })
-  }, [selectedId, rows, virtualizer])
-
   const hasNamespaces = namespaces.length > 0
   const firstNodeItem = virtualItems.find(vi => rows[vi.index]?.kind === 'node')
-  const toolButton =
-    'shrink-0 w-6 h-6 grid place-items-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary'
 
   return (
     <div className="flex flex-col h-full min-h-0 text-i3x-text">
-      {/* Filter input + micro-toolbar, fixed header so it stays put (and
-          full-width) while the tree body scrolls horizontally */}
-      <div className="shrink-0 bg-i3x-surface pb-2 mb-1 flex items-center gap-1.5">
+      {/* Filter input, fixed header so it stays put (and full-width) while the
+          tree body scrolls horizontally. The sidebar gives the tree its full
+          width edge-to-edge; the input carries its own side padding while rows
+          bleed to the panel edges. */}
+      <div className="shrink-0 bg-i3x-surface px-2 pb-2 mb-1">
         <input
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           placeholder="Filter tree…"
-          className="flex-1 min-w-0 px-2 py-1 text-sm bg-i3x-bg border border-i3x-border rounded text-i3x-text placeholder:text-i3x-text-muted focus:outline-none focus:border-i3x-primary"
+          className="w-full px-2 py-1 text-sm bg-i3x-bg border border-i3x-border rounded text-i3x-text placeholder:text-i3x-text-muted focus:outline-none focus:border-i3x-primary"
         />
-        <button
-          type="button"
-          onClick={collapseAll}
-          title="Collapse all"
-          aria-label="Collapse all"
-          className={toolButton}
-        >
-          <CollapseAllIcon size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={locateSelection}
-          disabled={!selectedId}
-          title="Reveal selection"
-          aria-label="Reveal selection"
-          className={toolButton}
-        >
-          <TargetIcon size={14} />
-        </button>
       </div>
 
       <div className="relative flex-1 min-h-0">
@@ -684,9 +654,14 @@ export function TreeView() {
           aria-activedescendant={focusedIndex !== null ? `tree-row-${focusedIndex}` : undefined}
           className="h-full overflow-auto focus:outline-none"
         >
+          {/* CSS max(): at least the panel width (rows, highlights and pills
+              always span it fully) and at least the measured widest row (long
+              offscreen labels still extend the horizontal scrollbar). A plain
+              minWidth px here would override min-w-full and let rows fall
+              short of the panel edge. */}
           <div
             className="w-max min-w-full"
-            style={listMinWidth > 0 ? { minWidth: listMinWidth } : undefined}
+            style={listMinWidth > 0 ? { minWidth: `max(100%, ${listMinWidth}px)` } : undefined}
           >
             <div style={{ paddingTop, paddingBottom }}>
               {virtualItems.map(vi => {
