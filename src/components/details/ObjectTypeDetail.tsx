@@ -6,15 +6,10 @@ interface ObjectTypeDetailProps {
 }
 
 export function ObjectTypeDetail({ objectType }: ObjectTypeDetailProps) {
+  // No heading here: SimpleDetailView (the shell every simple detail renders
+  // in) already shows the display name and the "Object Type" kind label.
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-i3x-text mb-1">
-          {objectType.displayName}
-        </h2>
-        <p className="text-sm text-i3x-text-muted">Object Type</p>
-      </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs text-i3x-text-muted mb-1">Element ID</label>

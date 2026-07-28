@@ -12,11 +12,12 @@ import { ConnectionDialog } from './components/connection/ConnectionDialog'
 import { UpdateChecker } from './components/updater/UpdateChecker'
 
 function App() {
-  const { showConnectionDialog, ignoreCertErrors } = useConnectionStore()
+  const showConnectionDialog = useConnectionStore(s => s.showConnectionDialog)
 
-  // Sync persisted ignoreCertErrors to main process on startup
+  // Sync persisted ignoreCertErrors to main process on startup. Read through
+  // getState(): this is a one-shot mount sync, not a subscription.
   useEffect(() => {
-    window.electronAPI?.setIgnoreCertErrors(ignoreCertErrors)
+    window.electronAPI?.setIgnoreCertErrors(useConnectionStore.getState().ignoreCertErrors)
   }, [])
 
   useEffect(() => {

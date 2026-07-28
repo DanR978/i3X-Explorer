@@ -167,9 +167,8 @@ export function TreeNode({
             title={nodeType === 'namespace' ? 'Copy namespace URI' : 'Copy element ID'}
             aria-label={nodeType === 'namespace' ? 'Copy namespace URI' : 'Copy element ID'}
             // `invisible`, not `hidden`: the slot must keep its layout space
-            // when not hovered. The tree wrapper is w-max (sized by the widest
-            // row), so a button that only exists on hover would widen that row
-            // and shove every right-aligned count pill sideways.
+            // when not hovered, or the count pill next to it would shift
+            // sideways every time the pointer enters and leaves the row.
             className="invisible group-hover:visible focus:visible grid w-5 h-5 place-items-center rounded mr-1 text-i3x-text-muted hover:text-i3x-primary hover:bg-i3x-text/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
           >
             {copied
@@ -218,22 +217,25 @@ export function TreeMoreNode({
     >
       <IndentGuides depth={row.depth} active={activeGuide} />
       <span className="w-4 flex-shrink-0" />
+      {/* The tree body clips horizontally (labels truncate), so the two
+          buttons must never shrink out of reach — only the "N hidden" count
+          gives way on a narrow sidebar. */}
       <button
         type="button"
         onClick={() => useExplorerStore.getState().raiseChildLimit(row.parentId, CHILD_PAGE_SIZE)}
-        className="flex items-center gap-1.5 whitespace-nowrap text-xs text-i3x-text-muted hover:text-i3x-primary rounded-md px-1.5 py-0.5 hover:bg-i3x-primary/10 transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+        className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-i3x-text-muted hover:text-i3x-primary rounded-md px-1.5 py-0.5 hover:bg-i3x-primary/10 transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
         <EllipsisIcon size={12} />
         Show {nextStep.toLocaleString()} more
       </button>
-      <span className="whitespace-nowrap text-[11px] text-i3x-text-muted/60 tabular-nums">
+      <span className="min-w-0 truncate text-[11px] text-i3x-text-muted/60 tabular-nums">
         {row.hidden.toLocaleString()} hidden
       </span>
       {row.hidden > CHILD_PAGE_SIZE && (
         <button
           type="button"
           onClick={() => useExplorerStore.getState().showAllChildren(row.parentId)}
-          className="whitespace-nowrap text-[11px] text-i3x-text-muted/80 hover:text-i3x-primary underline decoration-dotted underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+          className="flex-shrink-0 whitespace-nowrap text-[11px] text-i3x-text-muted/80 hover:text-i3x-primary underline decoration-dotted underline-offset-2 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
           show all
         </button>

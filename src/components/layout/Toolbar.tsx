@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { performConnect, performDisconnect } from '../../services/connection'
@@ -32,6 +33,8 @@ export function Toolbar() {
   }, [theme])
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
+  // Shallow picks, not bare store hooks: a bare hook re-renders the toolbar on
+  // every store write. Actions are stable refs, so including them is free.
   const {
     serverUrl,
     isConnected,
@@ -42,9 +45,28 @@ export function Toolbar() {
     setRedirectNotice,
     v0Blocked,
     setV0Blocked
-  } = useConnectionStore()
+  } = useConnectionStore(useShallow(s => ({
+    serverUrl: s.serverUrl,
+    isConnected: s.isConnected,
+    isConnecting: s.isConnecting,
+    error: s.error,
+    setShowConnectionDialog: s.setShowConnectionDialog,
+    redirectNotice: s.redirectNotice,
+    setRedirectNotice: s.setRedirectNotice,
+    v0Blocked: s.v0Blocked,
+    setV0Blocked: s.setV0Blocked
+  })))
 
-  const { pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore()
+  const { pollIntervalMs, setPollIntervalMs, triggerManualRefresh, sidebarCollapsed, toggleSidebar, goBack, goForward, selectItem } = useExplorerStore(useShallow(s => ({
+    pollIntervalMs: s.pollIntervalMs,
+    setPollIntervalMs: s.setPollIntervalMs,
+    triggerManualRefresh: s.triggerManualRefresh,
+    sidebarCollapsed: s.sidebarCollapsed,
+    toggleSidebar: s.toggleSidebar,
+    goBack: s.goBack,
+    goForward: s.goForward,
+    selectItem: s.selectItem
+  })))
   // Clearing the selection is what "Home" means, the main panel renders its
   // Home shell whenever nothing is selected.
   const showHome = () => selectItem(null)
