@@ -54,9 +54,17 @@ npm install
 # Run in development mode (with hot reload)
 npm run dev
 
-# Type checking
+# Type checking (covers src/ AND electron/ + vite configs, two tsc projects)
 npm run typecheck
+
+# Lint (ESLint 9 flat config, eslint.config.js; exhaustive-deps is an error)
+npm run lint
+
+# Unit tests (vitest, standalone vitest.config.ts; *.test.ts alongside sources)
+npm test
 ```
+
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, test, and a `build:vite` smoke on every push and PR.
 
 ## Building Installers
 
@@ -562,12 +570,15 @@ The list and the tree share a single card, laid out like a Fusion 360 workspace:
 ### Subscription Recovery
 - `src/api/subscription.ts` exports `HttpStatusError` (carries `.status: number`) and `isSubscriptionGoneError(error)` helper
 - HTTP 404/410 on the SSE stream calls `onError` directly instead of entering the reconnect loop — retrying a gone subscription always fails
-- `SubscriptionTransportProvider` catches these via `isSubscriptionGoneError()` and calls `handleRecovery()`: tears down the stale subscription, creates a fresh one, re-registers monitored items, resumes streaming, and updates `activeSubscriptionId`
-- Recovery is capped at 3 attempts (`recoveryAttemptsRef`); the counter resets to 0 on the first successful data delivery
+- The recovery logic lives in `src/components/subscriptions/recovery.ts` (`performRecovery`, unit-tested); `SubscriptionTransportProvider.handleRecovery` is a thin wrapper that supplies the transports and the shared `RecoveryHarness` ref
+- `performRecovery` is re-entrancy-guarded, stops BOTH transports first (a still-running poller 404-ing was the concurrent-recovery source), captures monitored items before mutating the store, then delete → create → re-register → `startStream` in a bounded retry loop
+- Capped at 3 attempts; the budget refunds on data delivery (`handleDataUpdate`) and on a successful recovery — but only when the previous success is >30s old, so a server that insta-expires each new subscription still converges to the cap instead of cycling forever
+- SSE reconnects are cancellable: `SSESubscription` stores its reconnect timer and sets a `disposed` flag on `disconnect()`, so deleting a subscription can't leave a zombie timer that re-fetches (and re-recovers) it
+- Polling uses a self-rescheduling `setTimeout` chain (never `setInterval`), so a sync slower than the interval can't stack concurrent requests
 - Polling path errors from `client.sync()` use string-prefix matching as fallback (those errors come from `client.ts`, not `subscription.ts`)
 
 ### Subscribe Error Handling
-- `ObjectDetailView.handleSubscribe` shows an inline error under the title row if `registerMonitoredItems` throws; the button is disabled and relabelled "Subscribing…" during the async call. On success it switches to the Subscriptions tab
+- `ObjectDetailView.handleSubscribe` shows an inline error under the title row if `registerMonitoredItems` throws; the button is disabled and relabelled "Subscribing…" during the async call. On success it starts the stream (unless one is already live on the subscription — `startStream` is not idempotent) and opens the subscriptions drawer
 - If a subscription was freshly created by `createSubscription` but `registerMonitoredItems` then fails, the new subscription is removed from the store and a best-effort `deleteSubscription` is fired to avoid leaving an empty orphan on the server
 - The error message clears automatically when the user navigates to a different object
 
