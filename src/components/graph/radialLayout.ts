@@ -58,23 +58,24 @@ export interface RadialLayout {
   edges: PositionedEdge[]
   /** One entry per hop, for the dashed guides and their captions. */
   rings: RingInfo[]
-  /** The drawing spans [-extent, extent] on both axes. */
-  extent: number
+  /**
+   * Radius of the outermost ring. The renderer derives its fit extent from
+   * this plus label headroom in *screen* px — labels are screen-constant, so
+   * a fixed diagram-unit pad here would shrink relative to them with depth.
+   */
+  outerRadius: number
 }
 
 /** Ring radii: fixed, so the map stays compact at any fan-out. */
 export const FIRST_RING = 120
 export const RING_GAP = 90
 
-/** Slack outside the last ring so its outward labels aren't clipped at fit. */
-const EXTENT_PAD = 55
-
 /** Longest label drawn, in characters. Must match truncateLabel in the renderer. */
 export const MAX_LABEL_CHARS = 24
 
 export function layoutRadial(graph: EgoGraph): RadialLayout {
   const root = graph.nodes.find(node => node.depth === 0)
-  if (!root) return { nodes: [], edges: [], rings: [], extent: 1 }
+  if (!root) return { nodes: [], edges: [], rings: [], outerRadius: 1 }
 
   const rootId = root.object.elementId
 
@@ -148,7 +149,7 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
     rings.push({ depth, radius: ringRadius(depth), count: perRing[depth] ?? 0 })
   }
 
-  return { nodes, edges, rings, extent: ringRadius(maxDepth) + EXTENT_PAD }
+  return { nodes, edges, rings, outerRadius: Math.max(ringRadius(maxDepth), FIRST_RING) }
 }
 
 /**

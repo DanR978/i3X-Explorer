@@ -263,11 +263,18 @@ export function TreeGraph({
   // read its neighborhood (a couple of columns). The token ref means a request is
   // answered exactly once — but late, if it lands while the walk is still loading,
   // since nodeById refreshing re-runs the effect with the request still unhandled.
-  const handledLocateToken = useRef(0)
+  // The ref starts at the mount-time token so a remount (the Tree/Rings toggle)
+  // doesn't re-answer an old request; a pick that isn't drawn is answered late
+  // while the walk is still loading, but once the walk settles without it, it's
+  // marked handled so a later deeper walk can't replay a long-forgotten jump.
+  const handledLocateToken = useRef(locate?.token ?? 0)
   useEffect(() => {
     if (!locate || locate.token === handledLocateToken.current) return
     const node = nodeById.get(locate.elementId)
-    if (!node) return
+    if (!node) {
+      if (!isLoading) handledLocateToken.current = locate.token
+      return
+    }
     handledLocateToken.current = locate.token
     const scale = Math.min(MAX_SCALE, Math.max(1.6, view.w / 900))
     setTransform({
@@ -276,7 +283,7 @@ export function TreeGraph({
       x: view.x + view.w / 2 - (node.x + 60) * scale,
       y: view.y + view.h / 2 - node.y * scale,
     })
-  }, [locate, nodeById, view])
+  }, [locate, nodeById, view, isLoading])
 
   return (
     <div className="flex flex-col h-full min-h-0">
