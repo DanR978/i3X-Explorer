@@ -140,19 +140,21 @@ html, body, #root {
    comet arcs orbit it in opposite directions. The arcs carry pathLength="100",
    so the dash math is in percent of the circle regardless of its radius. */
 
+/* Timings are deliberately slow (¼ of the first cut): a loader that drifts
+   reads calm; one that races reads frantic. */
 .i3x-loader-img {
-  animation: i3x-logo-spin 7s linear infinite;
+  animation: i3x-logo-spin 28s linear infinite;
 }
 
 .i3x-loader-glow {
   opacity: 0.7;
   background: radial-gradient(closest-side, rgb(var(--i3x-success) / 0.45), transparent 72%);
-  animation: i3x-glow-breathe 2.4s ease-in-out infinite;
+  animation: i3x-glow-breathe 9.6s ease-in-out infinite;
 }
 
 .i3x-loader-ring {
   stroke-dasharray: 24 76;
-  animation: i3x-ring-chase 1.8s linear infinite;
+  animation: i3x-ring-chase 7.2s linear infinite;
 }
 
 .i3x-loader-ring-2 {
