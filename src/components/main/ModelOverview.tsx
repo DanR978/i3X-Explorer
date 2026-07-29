@@ -10,7 +10,6 @@ import {
 import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
-import { I3xLoader } from '../common/I3xLoader'
 
 /** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
 const MAX_BARS = 12
@@ -152,6 +151,9 @@ export function ModelOverview({
 /**
  * Shown while the catalog is still arriving. Mirrors the real layout (stat
  * row, then two card columns) so the page doesn't jump when the data lands.
+ * Stays up until the model actually lands — isLoading covers the whole
+ * object-list prefetch (see services/connection.ts), so there is no blank
+ * frame between the skeleton and the populated overview.
  */
 function OverviewSkeleton() {
   return (
@@ -160,10 +162,6 @@ function OverviewSkeleton() {
       role="status"
       aria-label="Loading model overview"
     >
-      <div className="flex flex-col items-center gap-2 py-3 text-xs text-i3x-text-muted">
-        <I3xLoader size={72} />
-        Loading model…
-      </div>
       <div className="space-y-3 animate-pulse motion-reduce:animate-none" aria-hidden="true">
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           {Array.from({ length: 6 }, (_, i) => (

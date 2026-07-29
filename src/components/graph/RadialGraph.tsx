@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
 import { getClient } from '../../api/client'
 import { useExplorerStore } from '../../stores/explorer'
-import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
+import { BUCKET_COLOR, BUCKET_DASH, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
 import { expandEgoGraph, type EgoGraph } from './egoGraph'
 import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
@@ -13,7 +13,22 @@ import { I3xLoader } from '../common/I3xLoader'
 import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.35
-const MAX_SCALE = 20
+const MAX_SCALE = 40
+
+/**
+ * Semantic zoom: node positions live in diagram units, but dots, labels and
+ * strokes are drawn at constant SCREEN size — their unit size is divided by
+ * the zoom. REF_PANE is the pane width (px) the sizing is calibrated against.
+ */
+const REF_PANE = 760
+
+/**
+ * A node's label appears when its angular slot × ring radius clears this many
+ * reference px at the current zoom. Hubs own wide slots and label first; the
+ * rest resolve as you zoom in.
+ */
+const LABEL_MIN_PX = 30
+const LABEL_PX = 11
 
 export interface RadialGraphProps {
   /** The element at the center: the selected object, or whatever was dropped in. */
@@ -40,9 +55,14 @@ export interface RadialGraphProps {
  * The depth-N relationship map for one element, drawn as a radial map.
  *
  * Rings are hops: the root at the center, its direct relationships on ring 1,
- * theirs on ring 2, and so on. Edge color is the relationship bucket, read from
- * the inner node outward, matching the legend below the card. This is the "rings"
- * view; the "tree" view (`TreeGraph`) is the other option in the toggle.
+ * theirs on ring 2, and so on. Rings are fixed and compact, and everything is
+ * drawn at constant screen size, so the fitted view is always a readable
+ * overview no matter the fan-out: a 1,000-child ring reads as a dense band
+ * with its hubs labeled, and zooming is the microscope that separates and
+ * labels the rest (label culling is by angular slot — see radialLayout).
+ * Edge color is the relationship bucket, read from the inner node outward,
+ * matching the legend below the card. This is the "rings" view; the "tree"
+ * view (`TreeGraph`) is the other option in the toggle.
  */
 export function RadialGraph({
   root,
@@ -106,17 +126,6 @@ export function RadialGraph({
   }, [root, depth])
 
   const layout = useMemo(() => (graph ? layoutRadial(graph) : null), [graph])
-
-  // Ring guides, derived from the laid-out nodes so they can't drift from them.
-  const rings = useMemo(() => {
-    if (!layout) return []
-    const byDepth = new Map<number, number>()
-    for (const node of layout.nodes) {
-      if (node.depth === 0) continue
-      byDepth.set(node.depth, Math.hypot(node.x, node.y))
-    }
-    return [...byDepth.entries()].sort((a, b) => a[0] - b[0])
-  }, [layout])
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -227,22 +236,94 @@ export function RadialGraph({
 
   const hovered = activeHoverId ? nodeById.get(activeHoverId) : null
   const hoveredNeighbors = activeHoverId ? neighbors.get(activeHoverId) : undefined
-  const dimmed = (id: string) =>
-    activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
 
   const extent = layout?.extent ?? 200
 
-  // Locator: a search pick centres the view on that node and zooms in. The token
-  // ref means a request is answered exactly once — but late, if it lands while the
-  // walk is still loading, since nodeById refreshing re-runs the effect with the
-  // request still unhandled.
+  // Everything screen-sized is some multiple of this: px × unitOverScale =
+  // diagram units that render at px on the reference pane at the current zoom.
+  const unitOverScale = (extent * 2) / REF_PANE / transform.scale
+
+  // Which labels fit at this zoom. Quantized so the set doesn't churn (and the
+  // memo doesn't recompute) on every wheel tick; pan never recomputes it.
+  const scaleKey = Math.round(transform.scale * 8) / 8
+  const labeledIds = useMemo(() => {
+    const set = new Set<string>()
+    if (!layout) return set
+    const minArcUnits = (LABEL_MIN_PX * (layout.extent * 2)) / REF_PANE / scaleKey
+    for (const node of layout.nodes) {
+      if (node.depth === 0 || Math.hypot(node.x, node.y) * node.slot >= minArcUnits) {
+        set.add(node.object.elementId)
+      }
+    }
+    return set
+  }, [layout, scaleKey])
+
+  // Dense edge fans get lighter ink so the rings stay readable underneath.
+  const edgeCount = layout?.edges.length ?? 0
+  const baseEdgeOpacity = edgeCount > 600 ? 0.4 : edgeCount > 250 ? 0.6 : 0.85
+
+  // Node and edge layers are memoized so panning (which only moves the group
+  // transform) doesn't reconcile thousands of elements per frame.
+  const edgeElements = useMemo(() => {
+    if (!layout) return null
+    const width = 1.3 * unitOverScale
+    const isDim = (id: string) =>
+      activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
+    return layout.edges.map(edge => {
+      const dash = BUCKET_DASH[edge.bucket]
+      return (
+        <line
+          key={`${edge.source}|${edge.target}|${edge.bucket}`}
+          x1={edge.x1}
+          y1={edge.y1}
+          x2={edge.x2}
+          y2={edge.y2}
+          stroke={BUCKET_COLOR[edge.bucket]}
+          strokeDasharray={dash ? dash.map(d => d * unitOverScale).join(',') : undefined}
+          strokeWidth={width}
+          opacity={isDim(edge.source) && isDim(edge.target) ? 0.1 : baseEdgeOpacity}
+        />
+      )
+    })
+  }, [layout, unitOverScale, activeHoverId, hoveredNeighbors, baseEdgeOpacity])
+
+  const nodeElements = useMemo(() => {
+    if (!layout) return null
+    const isDim = (id: string) =>
+      activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
+    return layout.nodes.map(node => {
+      const id = node.object.elementId
+      return (
+        <GraphNode
+          key={id}
+          node={node}
+          unitOverScale={unitOverScale}
+          dimmed={isDim(id)}
+          emphasized={activeHoverId === id}
+          showLabel={labeledIds.has(id) || activeHoverId === id}
+          onHover={setHoverId}
+          onSelect={onSelectElement}
+        />
+      )
+    })
+  }, [layout, unitOverScale, activeHoverId, hoveredNeighbors, labeledIds, onSelectElement])
+
+  // Locator: a search pick centres the view on that node and zooms far enough in
+  // that its own label resolves. The token ref means a request is answered exactly
+  // once — but late, if it lands while the walk is still loading, since nodeById
+  // refreshing re-runs the effect with the request still unhandled.
   const handledLocateToken = useRef(0)
   useEffect(() => {
     if (!locate || locate.token === handledLocateToken.current) return
     const node = nodeById.get(locate.elementId)
     if (!node) return
     handledLocateToken.current = locate.token
-    const scale = Math.min(MAX_SCALE, Math.max(1.8, (extent * 2) / 460))
+    const ring = Math.hypot(node.x, node.y)
+    const needed =
+      ring > 0 && node.slot > 0
+        ? (LABEL_MIN_PX * 1.6 * (extent * 2)) / REF_PANE / (ring * node.slot)
+        : 2.5
+    const scale = Math.max(2.5, Math.min(MAX_SCALE * 0.75, needed))
     setTransform({ scale, x: -node.x * scale, y: -node.y * scale })
   }, [locate, nodeById, extent])
 
@@ -291,56 +372,36 @@ export function RadialGraph({
               aria-label={`Relationship map for ${root.displayName}, ${layout.nodes.length} objects within ${depth} hops`}
             >
               <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.scale})`}>
-                {rings.map(([ringDepth, radius]) => (
-                  <g key={ringDepth}>
+                {layout.rings.map(ring => (
+                  <g key={ring.depth}>
                     <circle
                       cx={0}
                       cy={0}
-                      r={radius}
+                      r={ring.radius}
                       fill="none"
                       stroke="rgb(var(--i3x-border))"
-                      strokeWidth={1}
-                      strokeDasharray="2,6"
+                      strokeWidth={unitOverScale}
+                      strokeDasharray={`${2 * unitOverScale},${6 * unitOverScale}`}
                       opacity={0.6}
                     />
-                    {/* Anchored due north, where the sector allocation leaves a seam. */}
+                    {/* Anchored due north, where the sector allocation leaves a seam.
+                        The count says what a dense band actually holds. */}
                     <text
                       x={0}
-                      y={-radius - 5}
+                      y={-ring.radius - 6 * unitOverScale}
                       textAnchor="middle"
                       className="fill-i3x-text-muted"
-                      fontSize={9}
-                      opacity={0.7}
+                      fontSize={9.5 * unitOverScale}
+                      opacity={0.75}
                     >
-                      {ringDepth} {ringDepth === 1 ? 'hop' : 'hops'}
+                      {ring.depth} {ring.depth === 1 ? 'hop' : 'hops'} ·{' '}
+                      {ring.count.toLocaleString()}
                     </text>
                   </g>
                 ))}
 
-                {layout.edges.map(edge => (
-                  <line
-                    key={`${edge.source}|${edge.target}|${edge.bucket}`}
-                    x1={edge.x1}
-                    y1={edge.y1}
-                    x2={edge.x2}
-                    y2={edge.y2}
-                    stroke={BUCKET_COLOR[edge.bucket]}
-                    strokeDasharray={dashArray(edge.bucket)}
-                    strokeWidth={1.5}
-                    opacity={dimmed(edge.source) && dimmed(edge.target) ? 0.12 : 0.85}
-                  />
-                ))}
-
-                {layout.nodes.map(node => (
-                  <GraphNode
-                    key={node.object.elementId}
-                    node={node}
-                    dimmed={dimmed(node.object.elementId)}
-                    emphasized={activeHoverId === node.object.elementId}
-                    onHover={setHoverId}
-                    onSelect={onSelectElement}
-                  />
-                ))}
+                {edgeElements}
+                {nodeElements}
               </g>
             </svg>
           )
@@ -400,29 +461,38 @@ export function RadialGraph({
 /**
  * Nodes are neutral so the edge colors carry the relationship, matching the
  * legend. Composition objects are hollow with a dashed border; the root is
- * filled in the primary color.
+ * filled in the primary color. All sizes are screen-constant (unitOverScale),
+ * so a dot is the same 8px whether the map is fitted or at 40×. Memoized:
+ * panning changes no prop, so the pan path never re-renders node subtrees.
  */
-function GraphNode({
+const GraphNode = memo(function GraphNode({
   node,
+  unitOverScale,
   dimmed,
   emphasized,
+  showLabel,
   onHover,
   onSelect,
 }: {
   node: PositionedNode
+  /** Diagram units per reference-pane px at the current zoom. */
+  unitOverScale: number
   dimmed: boolean
   /** The active-hover node (map hover or a hovered list row). Gets a focus ring. */
   emphasized: boolean
+  showLabel: boolean
   onHover: (id: string | null) => void
   onSelect: (id: string) => void
 }) {
+  const px = (n: number) => n * unitOverScale
   const isRoot = node.depth === 0
   const isComposition = node.object.isComposition === true
+  const dotRadius = isRoot ? px(10) : px(4 + Math.min(Math.sqrt(node.degree) * 1.2, 4))
   // Push the label out along the node's own bearing, and flip its anchor across
   // the vertical axis so it always reads away from the center.
-  const outward = isRoot ? 0 : node.radius + 6
+  const outward = isRoot ? 0 : dotRadius + px(6)
   const labelX = node.x + Math.cos(node.angle) * outward
-  const labelY = isRoot ? node.y - node.radius - 7 : node.y + Math.sin(node.angle) * outward
+  const labelY = isRoot ? node.y - dotRadius - px(7) : node.y + Math.sin(node.angle) * outward
   const anchor = isRoot ? 'middle' : Math.cos(node.angle) >= 0 ? 'start' : 'end'
 
   return (
@@ -440,30 +510,37 @@ function GraphNode({
         <circle
           cx={node.x}
           cy={node.y}
-          r={node.radius + 5}
+          r={dotRadius + px(5)}
           fill="none"
           stroke="rgb(var(--i3x-primary))"
-          strokeWidth={2}
+          strokeWidth={px(2)}
         />
       )}
       <circle
         cx={node.x}
         cy={node.y}
-        r={node.radius}
+        r={dotRadius}
         fill={isRoot ? 'rgb(var(--i3x-primary))' : nodeFill(isComposition)}
         stroke={isRoot ? 'rgb(var(--i3x-primary))' : 'rgb(var(--i3x-text-muted))'}
-        strokeWidth={1.5}
-        strokeDasharray={isComposition && !isRoot ? COMPOSITION_DASH.join(',') : undefined}
+        strokeWidth={px(1.5)}
+        strokeDasharray={
+          isComposition && !isRoot ? COMPOSITION_DASH.map(d => px(d)).join(',') : undefined
+        }
       />
       {/* A fat transparent disc: a 5px circle is a miserable hover target. */}
-      <circle cx={node.x} cy={node.y} r={Math.max(node.radius + 7, 13)} fill="transparent" />
-      {node.showLabel && (
+      <circle
+        cx={node.x}
+        cy={node.y}
+        r={Math.max(dotRadius + px(7), px(13))}
+        fill="transparent"
+      />
+      {showLabel && (
         <text
           x={labelX}
           y={labelY}
           textAnchor={anchor}
           dominantBaseline="middle"
-          fontSize={11}
+          fontSize={px(LABEL_PX)}
           className={
             isRoot
               ? 'fill-i3x-text font-medium'
@@ -474,7 +551,7 @@ function GraphNode({
           style={{
             paintOrder: 'stroke',
             stroke: 'rgb(var(--i3x-bg))',
-            strokeWidth: 3,
+            strokeWidth: px(3),
             strokeLinejoin: 'round',
           }}
         >
@@ -483,7 +560,7 @@ function GraphNode({
       )}
     </g>
   )
-}
+})
 
 function GraphButton({
   label,
@@ -508,10 +585,17 @@ function GraphButton({
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="h-full grid place-items-center text-center px-6">{children}</div>
+  // One inner block, so multiple children (logo + caption, or a two-line
+  // empty state) stack tightly instead of becoming separate grid rows that
+  // split the panel's full height between them.
+  return (
+    <div className="h-full grid place-items-center text-center px-6">
+      <div>{children}</div>
+    </div>
+  )
 }
 
-/** Every node is labeled; a very long name is clipped here and the hover card carries the full one. */
+/** A very long name is clipped here; the hover card carries the full one. */
 function truncateLabel(name: string, max = MAX_LABEL_CHARS): string {
   return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }
