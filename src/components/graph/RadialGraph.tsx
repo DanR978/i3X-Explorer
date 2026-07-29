@@ -18,9 +18,14 @@ const MAX_SCALE = 40
 /**
  * Semantic zoom: node positions live in diagram units, but dots, labels and
  * strokes are drawn at constant SCREEN size — their unit size is divided by
- * the zoom. REF_PANE is the pane width (px) the sizing is calibrated against.
+ * the zoom and calibrated against the measured pane (its minor dimension), so
+ * "11px" text really renders at 11 CSS px on any pane. FALLBACK_PANE covers
+ * the frame before the ResizeObserver's first measurement.
  */
-const REF_PANE = 760
+const FALLBACK_PANE = 760
+
+/** Screen px of headroom around the outer ring at fit, for its outward labels. */
+const FIT_PAD_PX = 72
 
 /**
  * A node's label appears when its angular slot × ring radius clears this many
@@ -84,6 +89,21 @@ export function RadialGraph({
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [isDropTarget, setIsDropTarget] = useState(false)
+
+  // Actual pane size (CSS px, minor dimension). All semantic-zoom sizing and
+  // the fit pad are calibrated against it.
+  const paneRef = useRef<HTMLDivElement>(null)
+  const [paneMin, setPaneMin] = useState(FALLBACK_PANE)
+  useEffect(() => {
+    const el = paneRef.current
+    if (!el) return
+    const observer = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect
+      if (width > 0 && height > 0) setPaneMin(Math.min(width, height))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // The walk reads the store, but a change to allObjects (the 30s poll) must not
   // re-trigger it. Only the root and the depth do. Refs keep the effect's deps honest.
@@ -159,9 +179,14 @@ export function RadialGraph({
     return [user.x, user.y]
   }, [])
 
+  // zoomAbout reads the adaptive ceiling through a ref so its identity stays
+  // stable (the wheel listener depends on it). The ref is assigned below, once
+  // the layout-derived ceiling is computed.
+  const maxScaleRef = useRef(MAX_SCALE)
+
   const zoomAbout = useCallback((cx: number, cy: number, factor: number) => {
     setTransform(current => {
-      const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, current.scale * factor))
+      const scale = Math.max(MIN_SCALE, Math.min(maxScaleRef.current, current.scale * factor))
       return {
         scale,
         x: cx - (cx - current.x) * (scale / current.scale),
@@ -174,7 +199,9 @@ export function RadialGraph({
   // no-op. Bind it directly to keep the page from scrolling while zooming.
   useEffect(() => {
     const svg = svgRef.current
-    if (!svg || !layout) return
+    // `error` is a dep so a failed re-walk (which unmounts the svg but keeps
+    // the old layout) still runs the cleanup and drops the listener.
+    if (!svg || !layout || error) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
       const [ux, uy] = toUserSpace(event.clientX, event.clientY)
@@ -182,7 +209,7 @@ export function RadialGraph({
     }
     svg.addEventListener('wheel', onWheel, { passive: false })
     return () => svg.removeEventListener('wheel', onWheel)
-  }, [layout, toUserSpace, zoomAbout])
+  }, [layout, error, toUserSpace, zoomAbout])
 
   const panOrigin = useRef<[number, number] | null>(null)
 
@@ -229,19 +256,44 @@ export function RadialGraph({
   }
 
   // A row hovered in the list highlights here just like a map hover, but an actual
-  // hover on the map wins. An external id that isn't drawn is ignored, so it can't
-  // dim the whole map with nothing lit.
+  // hover on the map wins. BOTH sources are validated against the drawn set: the
+  // map's own hoverId goes stale when a re-root or depth change replaces the
+  // layout while the cursor sits on an old node (mouseleave never fires for
+  // unmounts), and an undrawn id would dim the entire map with nothing lit.
+  const mapHoverId = hoverId && nodeById.has(hoverId) ? hoverId : null
   const activeHoverId =
-    hoverId ?? (externalHoverId && nodeById.has(externalHoverId) ? externalHoverId : null)
+    mapHoverId ?? (externalHoverId && nodeById.has(externalHoverId) ? externalHoverId : null)
 
   const hovered = activeHoverId ? nodeById.get(activeHoverId) : null
   const hoveredNeighbors = activeHoverId ? neighbors.get(activeHoverId) : undefined
 
-  const extent = layout?.extent ?? 200
+  // Fit extent: the outer ring plus FIT_PAD_PX of *screen* headroom for its
+  // outward labels. Solved in units (extent = outer + padPx·2·extent/pane) so
+  // the pad holds its screen size at any depth; the denominator floor keeps a
+  // tiny pane from inflating the extent without bound.
+  const outerRadius = layout?.outerRadius ?? 200
+  const extent = outerRadius / Math.max(0.5, 1 - (2 * FIT_PAD_PX) / paneMin)
 
   // Everything screen-sized is some multiple of this: px × unitOverScale =
-  // diagram units that render at px on the reference pane at the current zoom.
-  const unitOverScale = (extent * 2) / REF_PANE / transform.scale
+  // diagram units that render at px CSS pixels at the current zoom.
+  const unitOverScale = (extent * 2) / paneMin / transform.scale
+
+  // The zoom ceiling adapts to the densest slot: MAX_SCALE is the floor, but a
+  // crowded ring needs more before its sliver slots can label and separate —
+  // a hard cap there would leave those nodes unreachable at any zoom.
+  const maxScale = useMemo(() => {
+    if (!layout) return MAX_SCALE
+    let tightestArc = Infinity
+    for (const node of layout.nodes) {
+      if (node.depth === 0) continue
+      const arc = Math.hypot(node.x, node.y) * node.slot
+      if (arc > 0 && arc < tightestArc) tightestArc = arc
+    }
+    if (!Number.isFinite(tightestArc)) return MAX_SCALE
+    const needed = ((LABEL_MIN_PX * (extent * 2)) / paneMin / tightestArc) * 1.3
+    return Math.max(MAX_SCALE, needed)
+  }, [layout, extent, paneMin])
+  maxScaleRef.current = maxScale
 
   // Which labels fit at this zoom. Quantized so the set doesn't churn (and the
   // memo doesn't recompute) on every wheel tick; pan never recomputes it.
@@ -249,14 +301,14 @@ export function RadialGraph({
   const labeledIds = useMemo(() => {
     const set = new Set<string>()
     if (!layout) return set
-    const minArcUnits = (LABEL_MIN_PX * (layout.extent * 2)) / REF_PANE / scaleKey
+    const minArcUnits = (LABEL_MIN_PX * (extent * 2)) / paneMin / scaleKey
     for (const node of layout.nodes) {
       if (node.depth === 0 || Math.hypot(node.x, node.y) * node.slot >= minArcUnits) {
         set.add(node.object.elementId)
       }
     }
     return set
-  }, [layout, scaleKey])
+  }, [layout, extent, paneMin, scaleKey])
 
   // Dense edge fans get lighter ink so the rings stay readable underneath.
   const edgeCount = layout?.edges.length ?? 0
@@ -309,27 +361,35 @@ export function RadialGraph({
   }, [layout, unitOverScale, activeHoverId, hoveredNeighbors, labeledIds, onSelectElement])
 
   // Locator: a search pick centres the view on that node and zooms far enough in
-  // that its own label resolves. The token ref means a request is answered exactly
-  // once — but late, if it lands while the walk is still loading, since nodeById
-  // refreshing re-runs the effect with the request still unhandled.
-  const handledLocateToken = useRef(0)
+  // that its own label resolves (the 1.6× headroom over the label gate survives
+  // because the clamp is the adaptive ceiling, which always covers the tightest
+  // slot). The token ref starts at the mount-time token so a remount (the
+  // Tree/Rings toggle) doesn't re-answer an old request; a pick that isn't drawn
+  // is answered late while the walk is still loading, but once the walk settles
+  // without it, it's marked handled so a later deeper walk can't replay a
+  // long-forgotten jump.
+  const handledLocateToken = useRef(locate?.token ?? 0)
   useEffect(() => {
     if (!locate || locate.token === handledLocateToken.current) return
     const node = nodeById.get(locate.elementId)
-    if (!node) return
+    if (!node) {
+      if (!isLoading) handledLocateToken.current = locate.token
+      return
+    }
     handledLocateToken.current = locate.token
     const ring = Math.hypot(node.x, node.y)
     const needed =
       ring > 0 && node.slot > 0
-        ? (LABEL_MIN_PX * 1.6 * (extent * 2)) / REF_PANE / (ring * node.slot)
+        ? (LABEL_MIN_PX * 1.6 * (extent * 2)) / paneMin / (ring * node.slot)
         : 2.5
-    const scale = Math.max(2.5, Math.min(MAX_SCALE * 0.75, needed))
+    const scale = Math.max(2.5, Math.min(maxScale, needed))
     setTransform({ scale, x: -node.x * scale, y: -node.y * scale })
-  }, [locate, nodeById, extent])
+  }, [locate, nodeById, extent, paneMin, maxScale, isLoading])
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div
+        ref={paneRef}
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDropTarget(false)}
         onDrop={handleDrop}
@@ -407,7 +467,10 @@ export function RadialGraph({
           )
         )}
 
-        {layout && layout.nodes.length > 1 && (
+        {/* Overlays are gated on !error too: a failed re-walk keeps the old
+            layout but unmounts the svg, and buttons floating over the error
+            message would mutate pan/zoom for a map that isn't there. */}
+        {!error && layout && layout.nodes.length > 1 && (
           <div className="absolute top-3 right-3 flex flex-col gap-1.5">
             <GraphButton label="Zoom in" onClick={() => zoomAbout(0, 0, 1.3)}>
               +
@@ -424,7 +487,7 @@ export function RadialGraph({
           </div>
         )}
 
-        {hovered && (
+        {!error && hovered && (
           <div className="absolute left-3 top-3 max-w-[260px] bg-i3x-surface border border-i3x-border rounded-lg px-3 py-2 text-xs pointer-events-none">
             <b className="text-[13px] text-i3x-text block truncate">{hovered.object.displayName}</b>
             <div className="font-mono text-[11px] text-i3x-text-muted truncate">
@@ -527,11 +590,22 @@ const GraphNode = memo(function GraphNode({
           isComposition && !isRoot ? COMPOSITION_DASH.map(d => px(d)).join(',') : undefined
         }
       />
-      {/* A fat transparent disc: a 5px circle is a miserable hover target. */}
+      {/* A fat transparent disc: a 5px circle is a miserable hover target. On a
+          crowded ring the disc shrinks to the node's own angular slot, so discs
+          tile instead of stacking — the hover lands on the node nearest the
+          cursor rather than whichever painted last, and a pan can start just
+          off the band instead of everything on it counting as a node press. */}
       <circle
         cx={node.x}
         cy={node.y}
-        r={Math.max(dotRadius + px(7), px(13))}
+        r={
+          isRoot
+            ? Math.max(dotRadius + px(7), px(13))
+            : Math.min(
+                Math.max(dotRadius + px(7), px(13)),
+                Math.max(dotRadius + px(2), (Math.hypot(node.x, node.y) * node.slot) / 2)
+              )
+        }
         fill="transparent"
       />
       {showLabel && (

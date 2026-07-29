@@ -35,7 +35,7 @@ describe('layoutRadial', () => {
     expect(ringOf(small, 'c0')).toBeCloseTo(FIRST_RING)
     expect(ringOf(huge, 'c0')).toBeCloseTo(FIRST_RING)
     // The whole point of the redesign: 1,500 children must not inflate the map.
-    expect(huge.extent).toBe(small.extent)
+    expect(huge.outerRadius).toBe(small.outerRadius)
   })
 
   it('spaces successive rings by RING_GAP', () => {
