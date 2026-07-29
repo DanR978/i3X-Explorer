@@ -5,11 +5,22 @@ import type { EgoEdge, EgoGraph, EgoNode } from './egoGraph'
  * per hop. Distance from the center IS the depth, which is the whole point of a
  * configurable-depth view (a force blob would place a 3-hop node anywhere).
  *
+ * Rings are FIXED and compact. They used to grow to fit every label, which made
+ * a 500-child ring thousands of units across: the fitted view shrank the whole
+ * map to dust and the side labels still stacked. Now geometry never depends on
+ * text — the renderer draws dots and labels at constant *screen* size and culls
+ * labels by each node's angular slot at the current zoom (semantic zoom), so
+ * the fitted view is always a readable compact map and zooming in resolves any
+ * crowd: screen separation between ring neighbors grows linearly with zoom.
+ *
  * Angles come from a weighted sector allocation down the BFS tree: each node
  * hands its children a slice of its own sector, sized by how many descendants
  * each carries. Siblings therefore stay together and tree edges never cross.
- * Non-tree edges (a node reachable two ways) are drawn as chords across the
- * rings, since those crossings are real information, not layout noise.
+ * The slot each node owns is exported — it is exactly the label-culling
+ * priority: heavy subtrees (the hubs worth reading first) own wide slots and
+ * label first; sliver-slot leaves appear as you zoom. Non-tree edges (a node
+ * reachable two ways) are drawn as chords across the rings, since those
+ * crossings are real information, not layout noise.
  *
  * Pure and deterministic: same graph in, same picture out, no simulation and no
  * jitter between renders.
@@ -18,13 +29,15 @@ import type { EgoEdge, EgoGraph, EgoNode } from './egoGraph'
 export interface PositionedNode extends EgoNode {
   x: number
   y: number
-  /** Circle radius in diagram units. */
-  radius: number
   /** Bearing from the center, in radians. Labels are pushed out along it. */
   angle: number
+  /**
+   * The angular span (radians) this node owns on its ring. The renderer shows a
+   * label only when `ringRadius * slot * zoom` clears its threshold, so wide
+   * slots (hubs, small rings) label first and slivers appear on zoom.
+   */
+  slot: number
   degree: number
-  /** Always true now: every node renders its name. Kept so the renderer stays generic. */
-  showLabel: boolean
 }
 
 export interface PositionedEdge extends EgoEdge {
@@ -34,49 +47,34 @@ export interface PositionedEdge extends EgoEdge {
   y2: number
 }
 
+export interface RingInfo {
+  depth: number
+  radius: number
+  count: number
+}
+
 export interface RadialLayout {
   nodes: PositionedNode[]
   edges: PositionedEdge[]
+  /** One entry per hop, for the dashed guides and their captions. */
+  rings: RingInfo[]
   /** The drawing spans [-extent, extent] on both axes. */
   extent: number
 }
 
-/** The first ring sits out far enough that the root's label has room. */
-const FIRST_RING = 150
+/** Ring radii: fixed, so the map stays compact at any fan-out. */
+export const FIRST_RING = 120
+export const RING_GAP = 90
 
-/** Gap between rings, *before* the extra room added to clear the widest label. */
-const RING_GAP_BASE = 64
-
-/** Floor on the arc each node gets: its circle plus a small gap, even with no label. */
-const MIN_ARC = 46
-
-/**
- * Every node is labeled, so a crowded ring has to spread or the names stack on
- * top of each other. Each node reserves this fraction of its label's width as
- * tangential room. Full width would over-spread the ring's sides, where labels
- * stack vertically and only need their height. LABEL_GAP is the breathing room
- * on top of that. Bigger names give wider rings, so the layout sizes itself to
- * its own text.
- */
-const LABEL_SPREAD = 0.7
-const LABEL_GAP = 16
-
-/** Slack outside the last ring so its (outward) labels aren't clipped. */
-const LABEL_PAD = 30
-
-const ROOT_RADIUS = 11
-const MIN_NODE_RADIUS = 4.5
-const MAX_NODE_RADIUS = 10
+/** Slack outside the last ring so its outward labels aren't clipped at fit. */
+const EXTENT_PAD = 55
 
 /** Longest label drawn, in characters. Must match truncateLabel in the renderer. */
 export const MAX_LABEL_CHARS = 24
 
-/** Approx width of one label character at fontSize 11, in diagram units. */
-const CHAR_WIDTH = 6.4
-
 export function layoutRadial(graph: EgoGraph): RadialLayout {
   const root = graph.nodes.find(node => node.depth === 0)
-  if (!root) return { nodes: [], edges: [], extent: 1 }
+  if (!root) return { nodes: [], edges: [], rings: [], extent: 1 }
 
   const rootId = root.object.elementId
 
@@ -115,53 +113,24 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
     if (node.depth > maxDepth) maxDepth = node.depth
   }
 
-  // Label-aware spacing. Every label is drawn, so spacing is sized from the actual
-  // text: the widest label on each ring drives how far that ring spreads, and the
-  // widest label anywhere drives the gap between rings (so an outward-pointing
-  // label never lands on the next ring out). Short names ⇒ tight; long names ⇒ airy.
-  const labelWidth = (node: EgoNode) =>
-    Math.min(node.object.displayName.length, MAX_LABEL_CHARS) * CHAR_WIDTH
-
-  let maxLabelWidth = 0
-  const ringLabelWidth: number[] = []
-  for (const node of graph.nodes) {
-    const width = labelWidth(node)
-    if (width > maxLabelWidth) maxLabelWidth = width
-    if (width > (ringLabelWidth[node.depth] ?? 0)) ringLabelWidth[node.depth] = width
-  }
-  const ringGap = RING_GAP_BASE + maxLabelWidth
-
-  // Each ring clears the one inside it (with room for its labels), and is wide
-  // enough that every node gets its own arc for circle plus label, so a crowded
-  // ring grows outward instead of stacking names.
-  const radii: number[] = [0]
-  for (let depth = 1; depth <= maxDepth; depth++) {
-    const arcPerNode = Math.max(MIN_ARC, (ringLabelWidth[depth] ?? 0) * LABEL_SPREAD + LABEL_GAP)
-    const crowded = (perRing[depth] * arcPerNode) / (2 * Math.PI)
-    radii[depth] = Math.max(radii[depth - 1] + ringGap, crowded, depth === 1 ? FIRST_RING : 0)
-  }
+  const ringRadius = (depth: number) => (depth === 0 ? 0 : FIRST_RING + (depth - 1) * RING_GAP)
 
   const angles = new Map<string, number>([[rootId, 0]])
+  const slots = new Map<string, number>([[rootId, Math.PI * 2]])
   // Start at 12 o'clock (SVG y grows downward, so -π/2 is up).
-  assignSectors(rootId, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2, children, weight, angles)
+  assignSectors(rootId, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2, children, weight, angles, slots)
 
   const nodes: PositionedNode[] = graph.nodes.map(node => {
     const id = node.object.elementId
     const angle = angles.get(id) ?? 0
-    const ring = radii[node.depth] ?? 0
-    const links = degree.get(id) ?? 0
+    const ring = ringRadius(node.depth)
     return {
       ...node,
       x: Math.cos(angle) * ring,
       y: Math.sin(angle) * ring,
       angle,
-      degree: links,
-      radius:
-        node.depth === 0
-          ? ROOT_RADIUS
-          : Math.min(MIN_NODE_RADIUS + Math.sqrt(links) * 1.6, MAX_NODE_RADIUS),
-      // Every node is labeled. The crowded-ring suppression is gone, names always render.
-      showLabel: true,
+      slot: slots.get(id) ?? 0,
+      degree: degree.get(id) ?? 0,
     }
   })
 
@@ -174,20 +143,26 @@ export function layoutRadial(graph: EgoGraph): RadialLayout {
     edges.push({ ...edge, x1: from.x, y1: from.y, x2: to.x, y2: to.y })
   }
 
-  const outer = radii[maxDepth] ?? 0
-  const extent = outer + maxLabelWidth + LABEL_PAD
+  const rings: RingInfo[] = []
+  for (let depth = 1; depth <= maxDepth; depth++) {
+    rings.push({ depth, radius: ringRadius(depth), count: perRing[depth] ?? 0 })
+  }
 
-  return { nodes, edges, extent: Math.max(extent, FIRST_RING) }
+  return { nodes, edges, rings, extent: ringRadius(maxDepth) + EXTENT_PAD }
 }
 
-/** Hands each child a slice of [start, end) proportional to its subtree, and centers it there. */
+/**
+ * Hands each child a slice of [start, end) proportional to its subtree, centers
+ * it there, and records the slice width as the child's slot.
+ */
 function assignSectors(
   id: string,
   start: number,
   end: number,
   children: Map<string, string[]>,
   weight: Map<string, number>,
-  angles: Map<string, number>
+  angles: Map<string, number>,
+  slots: Map<string, number>
 ): void {
   const kids = children.get(id)
   if (!kids || kids.length === 0) return
@@ -198,8 +173,9 @@ function assignSectors(
   for (const kid of kids) {
     const span = ((end - start) * (weight.get(kid) ?? 1)) / total
     angles.set(kid, cursor + span / 2)
+    slots.set(kid, span)
     // Depth is capped at MAX_EGO_DEPTH, so this recursion can't run away.
-    assignSectors(kid, cursor, cursor + span, children, weight, angles)
+    assignSectors(kid, cursor, cursor + span, children, weight, angles, slots)
     cursor += span
   }
 }

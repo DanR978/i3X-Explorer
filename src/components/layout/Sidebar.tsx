@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from 'react'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { TreeView } from '../tree/TreeView'
-import { I3xLoader } from '../common/I3xLoader'
 
 /**
  * Placeholder rows shown while the catalog loads: [indent level, width %].
@@ -11,17 +10,19 @@ import { I3xLoader } from '../common/I3xLoader'
 const SKELETON_ROWS: Array<[number, number]> = [
   [0, 62], [1, 48], [2, 66], [2, 42], [1, 56], [2, 50],
   [3, 38], [0, 58], [1, 44], [1, 60], [2, 40], [0, 52],
+  [1, 54], [2, 46], [2, 62], [1, 42], [0, 60], [1, 50],
 ]
 
-/** Pulsing stand-in for the tree while the object catalog is being fetched. */
+/**
+ * Pulsing stand-in for the tree while the object catalog is being fetched.
+ * Stays up until the catalog actually lands — isLoading covers the whole
+ * object-list prefetch (see services/connection.ts), so the tree never
+ * flashes empty between skeleton and data.
+ */
 function TreeSkeleton() {
   return (
-    <div className="flex-1 min-h-0 overflow-hidden px-2" role="status" aria-label="Loading model">
-      <div className="flex flex-col items-center gap-2 px-2 py-4 text-xs text-i3x-text-muted">
-        <I3xLoader size={56} />
-        Loading model…
-      </div>
-      <div className="mt-1 space-y-2 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+    <div className="flex-1 min-h-0 overflow-hidden px-2 py-1" role="status" aria-label="Loading model">
+      <div className="space-y-2 animate-pulse motion-reduce:animate-none" aria-hidden="true">
         {SKELETON_ROWS.map(([indent, width], i) => (
           <div
             key={i}

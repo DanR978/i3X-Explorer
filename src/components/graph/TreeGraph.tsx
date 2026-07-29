@@ -13,7 +13,7 @@ import { I3xLoader } from '../common/I3xLoader'
 import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.2
-const MAX_SCALE = 20
+const MAX_SCALE = 40
 
 // Label + node sizes live in diagram units and scale with the map. The tree gives
 // every node its own row, so they never collide however the map is scaled.
@@ -544,7 +544,14 @@ function GraphButton({
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="h-full grid place-items-center text-center px-6">{children}</div>
+  // One inner block, so multiple children (logo + caption, or a two-line
+  // empty state) stack tightly instead of becoming separate grid rows that
+  // split the panel's full height between them.
+  return (
+    <div className="h-full grid place-items-center text-center px-6">
+      <div>{children}</div>
+    </div>
+  )
 }
 
 /** A very long name is clipped here; the hover card carries the full one. */

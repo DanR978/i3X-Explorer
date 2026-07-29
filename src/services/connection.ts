@@ -40,8 +40,9 @@ export async function performConnect(): Promise<void> {
       }
       // Flips true before the initial namespace/type load on purpose: the
       // sidebar checks isConnected before isLoading, so flipping it later
-      // would show "Connect to a server to browse" instead of "Loading…"
-      // during a normal connect. The catch below un-flips it on failure.
+      // would show "Connect to a server to browse" instead of the loading
+      // skeleton during a normal connect. The catch below un-flips it on
+      // failure.
       connection.setConnected(true)
 
       // The server may have redirected during version detection (e.g. http → https);
@@ -67,18 +68,24 @@ export async function performConnect(): Promise<void> {
       ])
       explorer.setNamespaces(namespaces)
       explorer.setObjectTypes(objectTypes)
-      explorer.setLoading(false)
 
       // Fire-and-forget: prefetch flat object list + hierarchy roots so the
       // tree's [count] indicators show before the user expands those folders.
       // Doesn't block the connect flow; expansion later refetches with
       // composition resolution, so chevron accuracy isn't affected.
+      //
+      // isLoading stays true until this prefetch settles: the sidebar and
+      // overview skeletons key off it, and clearing it after namespaces/types
+      // (but before the object list) left a window where the skeletons gave
+      // way to empty states that the arriving model then replaced.
       client.getObjects().then(explorer.setAllObjects).catch(err => {
         // A failure here means a silently empty Objects/Hierarchy tree — say so.
         console.warn('Object list prefetch failed:', err)
         useConnectionStore.getState().setError(
           `Connected, but loading the object list failed: ${err instanceof Error ? err.message : String(err)}`
         )
+      }).finally(() => {
+        explorer.setLoading(false)
       })
       client.getObjects(undefined, false, true).then(explorer.setHierarchicalRoots).catch(err => {
         // Redundant with expansion-time refetch, so a log is enough.
