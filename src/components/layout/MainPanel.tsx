@@ -1,15 +1,17 @@
 import { useExplorerStore } from '../../stores/explorer'
+import { useDiffStore } from '../../stores/diff'
 import { NamespaceDetail } from '../details/NamespaceDetail'
 import { ObjectTypeDetail } from '../details/ObjectTypeDetail'
+import { DiffView } from '../diff/DiffView'
 import { HomeView } from '../main/HomeView'
 import { ObjectDetailView } from '../main/ObjectDetailView'
 import { SimpleDetailView } from '../main/SimpleDetailView'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 
 /**
- * The main content panel. Two top-level states, driven purely by `selectedItem`
- * in the explorer store:
+ * The main content panel. Top-level states, driven purely by store state:
  *
+ *   diff view open   → snapshot diff (see stores/diff.ts — any navigation closes it)
  *   nothing selected → Home shell (model overview)
  *   object selected  → tabbed element detail
  *
@@ -18,6 +20,11 @@ import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
  */
 export function MainPanel() {
   const selectedItem = useExplorerStore(state => state.selectedItem)
+  const diffOpen = useDiffStore(state => state.viewOpen)
+
+  if (diffOpen) {
+    return <DiffView />
+  }
 
   if (!selectedItem) {
     return <HomeView />

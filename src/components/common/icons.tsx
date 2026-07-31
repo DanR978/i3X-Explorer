@@ -260,6 +260,14 @@ export const CopyIcon = (p: IconProps) => (
   </Icon>
 )
 
+/** Snapshot: camera. */
+export const CameraIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 18.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-10A1.5 1.5 0 0 1 4.5 7H8l1.7-2.4A1.5 1.5 0 0 1 10.9 4h2.2a1.5 1.5 0 0 1 1.2.6L16 7h3.5A1.5 1.5 0 0 1 21 8.5z" />
+    <circle cx="12" cy="13" r="3.6" />
+  </Icon>
+)
+
 /** Truncated child list: horizontal ellipsis. */
 export const EllipsisIcon = (p: IconProps) => (
   <Icon {...p}>

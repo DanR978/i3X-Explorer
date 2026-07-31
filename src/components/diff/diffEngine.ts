@@ -114,7 +114,8 @@ function normalizeField(value: string | null | undefined): string | null {
   return value == null || value === '' ? null : value
 }
 
-function buildIndex(objects: ObjectInstance[]): Map<string, ObjectInstance> {
+/** Last-wins elementId → object map — the same shape the explorer store builds. */
+export function buildObjectIndex(objects: ObjectInstance[]): Map<string, ObjectInstance> {
   const index = new Map<string, ObjectInstance>()
   for (const object of objects) index.set(object.elementId, object)
   return index
@@ -157,8 +158,8 @@ export function diffCatalogs(
 ): CatalogDiff {
   const deepCompare = options.deepCompare ?? false
 
-  const baseIndex = baseline.objectIndex ?? buildIndex(baseline.objects)
-  const currIndex = current.objectIndex ?? buildIndex(current.objects)
+  const baseIndex = baseline.objectIndex ?? buildObjectIndex(baseline.objects)
+  const currIndex = current.objectIndex ?? buildObjectIndex(current.objects)
 
   const added: string[] = []
   const removed: string[] = []

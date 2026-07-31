@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
+import { useDiffStore } from '../../stores/diff'
 import { performConnect, performDisconnect } from '../../services/connection'
 import { SearchModal } from '../search/SearchModal'
-import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon } from '../common/icons'
+import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon, CameraIcon } from '../common/icons'
 import { Spinner } from '../common/Spinner'
 import iconPng from '/icon.png'
 
@@ -26,7 +27,11 @@ const POLL_OPTIONS = [
 export function Toolbar() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [showSnapshotMenu, setShowSnapshotMenu] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  // One hidden file input serves both load actions; this ref says which one is pending.
+  const snapshotFileTarget = useRef<'baseline' | 'comparison'>('baseline')
+  const snapshotFileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -68,9 +73,54 @@ export function Toolbar() {
     goForward: s.goForward,
     selectItem: s.selectItem
   })))
+  const objectCount = useExplorerStore(s => s.allObjects.length)
+  const {
+    snapshotBusy,
+    hasBaseline,
+    hasComparison,
+    captureAndSave,
+    loadBaselineFile,
+    loadComparisonFile,
+    clearComparison,
+    openDiffView,
+    closeDiffView,
+    clearBaseline,
+  } = useDiffStore(useShallow(s => ({
+    snapshotBusy: s.busy,
+    hasBaseline: s.baseline !== null,
+    hasComparison: s.comparison !== null,
+    captureAndSave: s.captureAndSave,
+    loadBaselineFile: s.loadBaselineFile,
+    loadComparisonFile: s.loadComparisonFile,
+    clearComparison: s.clearComparison,
+    openDiffView: s.openView,
+    closeDiffView: s.closeView,
+    clearBaseline: s.clearBaseline,
+  })))
+
   // Clearing the selection is what "Home" means, the main panel renders its
-  // Home shell whenever nothing is selected.
-  const showHome = () => selectItem(null)
+  // Home shell whenever nothing is selected. Home also leaves the diff view —
+  // its store only auto-closes on selection *changes*, and Home-while-on-Home
+  // isn't one.
+  const showHome = () => {
+    closeDiffView()
+    selectItem(null)
+  }
+
+  const handleSnapshotFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // Reset so picking the same file again re-fires the change event.
+    e.target.value = ''
+    if (!file) return
+    if (snapshotFileTarget.current === 'baseline') void loadBaselineFile(file)
+    else void loadComparisonFile(file)
+  }
+
+  const pickSnapshotFile = (target: 'baseline' | 'comparison') => {
+    snapshotFileTarget.current = target
+    setShowSnapshotMenu(false)
+    snapshotFileInput.current?.click()
+  }
   const canGoBack = useExplorerStore(s => s.historyIndex > 0)
   const canGoForward = useExplorerStore(s => s.historyIndex < s.history.length - 1)
 
@@ -210,9 +260,84 @@ export function Toolbar() {
         </button>
       </div>
 
-      {/* Settings gear + theme toggle. Connection status, counts and the
-          Developer button now live in the bottom status bar. */}
+      {/* Snapshot camera + settings gear + theme toggle. Connection status,
+          counts and the Developer button now live in the bottom status bar. */}
       <div className="flex items-center no-drag flex-shrink-0">
+        <input
+          ref={snapshotFileInput}
+          type="file"
+          accept=".gz,.json,application/gzip,application/json"
+          className="hidden"
+          onChange={handleSnapshotFile}
+        />
+        <div className="relative">
+          <button
+            onClick={() => setShowSnapshotMenu(m => !m)}
+            title="Snapshot & diff"
+            aria-label="Snapshot and diff"
+            className="relative w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
+          >
+            <CameraIcon size={16} />
+            {/* A baseline is loaded and diffable — worth a quiet marker. */}
+            {hasBaseline && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-i3x-primary" />
+            )}
+          </button>
+          {showSnapshotMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSnapshotMenu(false)} />
+              <div className="absolute right-0 top-9 z-50 bg-i3x-surface border border-i3x-border rounded-lg shadow-xl w-64 py-1">
+                <button
+                  onClick={() => { void captureAndSave(); setShowSnapshotMenu(false) }}
+                  disabled={!isConnected || objectCount === 0 || snapshotBusy === 'saving'}
+                  title="Writes the already-fetched catalog to a file — no new requests. Refresh first if you want it fresher."
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {snapshotBusy === 'saving'
+                    ? 'Saving snapshot…'
+                    : `Save snapshot (${objectCount.toLocaleString()} objects)`}
+                </button>
+                <button
+                  onClick={() => pickSnapshotFile('baseline')}
+                  className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                >
+                  Load baseline & diff…
+                </button>
+                {hasBaseline && (
+                  <>
+                    <div className="border-t border-i3x-border my-1" />
+                    <button
+                      onClick={() => { openDiffView(); setShowSnapshotMenu(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      View diff
+                    </button>
+                    <button
+                      onClick={() => pickSnapshotFile('comparison')}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      Compare against second file…
+                    </button>
+                    {hasComparison && (
+                      <button
+                        onClick={() => { clearComparison(); setShowSnapshotMenu(false) }}
+                        className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                      >
+                        Compare against live catalog
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { clearBaseline(); setShowSnapshotMenu(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors"
+                    >
+                      Clear baseline
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <div className="relative">
           <button
             onClick={() => setShowSettingsMenu(m => !m)}
