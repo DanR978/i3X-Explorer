@@ -81,7 +81,8 @@ const NO_PARENT = '/'
 /** Enough rows to see the shape, few enough to scan. */
 const TOP_N = 8
 
-function hasParent(object: ObjectInstance): boolean {
+/** Shared with relationshipInsights: '', '/' and null all mean "no parent". */
+export function hasParent(object: ObjectInstance): boolean {
   return object.parentId != null && object.parentId !== '' && object.parentId !== NO_PARENT
 }
 

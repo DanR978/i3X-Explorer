@@ -190,6 +190,7 @@ The `scripts/generate-icons.sh` script generates platform-specific icons:
 - Long tree labels truncate with an ellipsis (full name in the tooltip), so count pills stay pinned at the panel's right edge at any sidebar width — widening the sidebar reveals more of each name
 - Collapse/expand the tree (sidebar) panel via the panel-toggle button at the left of the toolbar
 - Global object search modal (toolbar Search button or ⌘K / Ctrl+K) — searches all objects by name or elementId, shows breadcrumb path, navigates to and expands the match in the tree (Hierarchy preferred, Objects flat as fallback)
+- **Relationship insights** on the Home shell — the model's own structural norms, mined per type ("117 of 120 Pumps contain a VibrationSensor — these 3 don't"), with the norm-breaking instances as clickable chips; exact counts from `parentId` links, no ML, renders only when something breaks a norm
 - **Model snapshots & diff** — capture the loaded catalog to a compressed `.i3xsnap.gz` file (zero extra requests), load one back as a baseline, and diff it against the live catalog or a second snapshot. Added / removed / re-parented / re-typed / renamed / moved-namespace categories (+ opt-in metadata compare), provenance banner for cross-server comparisons, most-changed-subtrees summary, virtualized category lists with copy-as-JSON; rows that still exist live are clickable, removed rows visibly aren't
 - Light/dark theme toggle (persists across restarts; falls back to OS preference)
 - Web deployment: `dist-web/` can be served as a static site; `config.json` pre-populates the server URL and recent connections list on first visit
@@ -506,6 +507,14 @@ Implementation notes:
 - `computeDepths` memoises each object's level and carries an in-progress set: some servers emit `parentId` cycles, which would otherwise spin forever
 - **Everything here is `parentId`-derived**, because those are the only edges knowable without a per-object round trip. That caveat lives behind an `InfoHint`, not in body copy
 - Charts follow the `dataviz` skill: **one hue for every bar** (a value-ramp on nominal categories would double-encode length as hue) and no colour-only encoding
+
+### Relationship Insights (`src/components/main/relationshipInsights.ts`)
+The model's structure implies norms nobody wrote down: if 96% of Pump instances contain a VibrationSensor child, that *is* the site's modeling convention, and the pumps without one are either mis-modeled or missing instrumentation. This module mines exactly those norms — per-type structural fingerprints — and reports the instances breaking them, on the Home shell as a card that (like *Worth knowing*) renders only when there's something to say.
+
+- Every finding is an exact count with its evidence attached ("117 of 120 have it, these 3 don't"), so it's actionable without trusting a black box. The deterministic layer is also the foundation an eventual ask-the-model assistant would call as a tool, rather than guessing at topology
+- Two norm kinds, both conservative: **missing-child** (instances of T nearly always contain a child of type C; flag those that don't) and **unusual-parent** (instances of T nearly always sit under a parent of type P; flag those that sit elsewhere, including at the root). The inverse — mostly-at-root with a few nested — is deliberately *not* a finding: common, rarely actionable, and a quiet panel stays trustworthy
+- A norm needs `MIN_NORM_INSTANCES` (8) instances agreeing at `NORM_THRESHOLD` (90%), and 100% coverage is silence — a norm with no exceptions isn't a finding. Findings sort strongest-norm-first; the card shows `MAX_INSIGHTS_SHOWN` with a "…and N weaker patterns" line. Outlier chips are capped at `MAX_OUTLIERS_LISTED` per finding (full count shown) and click through `selectElement`
+- Like `modelStats`, it derives **entirely from the store** — `parentId` links only (the same per-object-round-trip limit, stated in the card's InfoHint), no requests, no sampling. One pass builds instances-by-type and child-type-sets-per-parent; all lookups are direct, no chain walks, so parentId cycles can't trap it. Measured ~36ms over 100k objects (timing case in the test file prints it)
 
 ### InfoHint (`src/components/main/InfoHint.tsx`)
 The "?" marker next to anything that isn't self-explanatory: hover for a one-line tooltip, click for a dismissible popup with the full explanation (Esc / outside-click to close).

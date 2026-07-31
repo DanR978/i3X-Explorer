@@ -7,12 +7,16 @@ import {
   type ObjectRef,
   type Tally,
 } from './modelStats'
+import { computeRelationshipInsights, type RelationshipInsight } from './relationshipInsights'
 import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
 import { useElementNavigation } from './navigation'
 
 /** Bars past this fold into an "Other" row, a catalog can declare hundreds of types. */
 const MAX_BARS = 12
+
+/** Findings past this stay behind a "…and N more" line — the top ones are the strongest norms. */
+const MAX_INSIGHTS_SHOWN = 6
 
 /**
  * What the model is made of, and, more to the point, where to start reading it.
@@ -42,6 +46,11 @@ export function ModelOverview({
     [objects, objectTypes, namespaceCount]
   )
 
+  const insights = useMemo(
+    () => computeRelationshipInsights(objects, objectTypes),
+    [objects, objectTypes]
+  )
+
   if (objects.length === 0) {
     if (isLoading) return <OverviewSkeleton />
     return (
@@ -61,6 +70,8 @@ export function ModelOverview({
       <StatRow stats={stats} />
 
       <Issues stats={stats} />
+
+      <RelationshipInsightsCard insights={insights} onSelect={selectElement} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card
@@ -327,6 +338,87 @@ function Issues({ stats }: { stats: ModelStats }) {
         </span>
       ))}
     </div>
+  )
+}
+
+/**
+ * Norms the model's own structure implies, and the instances that break them.
+ * Renders only when something breaks a norm — same reasoning as Issues: a
+ * permanent "no findings" card trains people to ignore it.
+ */
+function RelationshipInsightsCard({
+  insights,
+  onSelect,
+}: {
+  insights: RelationshipInsight[]
+  onSelect: (elementId: string) => void
+}) {
+  if (insights.length === 0) return null
+  const shown = insights.slice(0, MAX_INSIGHTS_SHOWN)
+
+  return (
+    <Card
+      title="Relationship insights"
+      actions={
+        <InfoHint label="How are these found?" title="Relationship insights">
+          Exact counts, not predictions. When at least 90% of a type's instances share a structural
+          pattern — containing a child of some type, or sitting under the same parent type — that
+          pattern is treated as the model's own norm, and the instances breaking it are listed.
+          Norms need at least 8 instances, and are computed from compositional{' '}
+          <span className="font-mono">parentId</span> links only (the same limit as everything else
+          on this page). A holdout is usually one of: mis-modeled, missing instrumentation, or the
+          one genuinely special case worth knowing about.
+        </InfoHint>
+      }
+    >
+      <ul className="space-y-3">
+        {shown.map(finding => (
+          <li key={`${finding.kind}:${finding.typeId}:${finding.relatedTypeId}`} className="min-w-0">
+            <p className="text-[12.5px] text-i3x-text">
+              <span className="tabular-nums font-medium">
+                {finding.conforming.toLocaleString()} of {finding.total.toLocaleString()}
+              </span>{' '}
+              <b>{finding.typeLabel}</b> instances{' '}
+              {finding.kind === 'missing-child' ? (
+                <>
+                  contain a <b>{finding.relatedTypeLabel}</b> —{' '}
+                  {finding.outlierCount === 1 ? 'this one doesn’t:' : `these ${finding.outlierCount.toLocaleString()} don’t:`}
+                </>
+              ) : (
+                <>
+                  sit under a <b>{finding.relatedTypeLabel}</b> —{' '}
+                  {finding.outlierCount === 1 ? 'this one sits elsewhere:' : `these ${finding.outlierCount.toLocaleString()} sit elsewhere:`}
+                </>
+              )}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {finding.outliers.map(outlier => (
+                <button
+                  key={outlier.elementId}
+                  type="button"
+                  onClick={() => onSelect(outlier.elementId)}
+                  title={`${outlier.elementId} · click to open`}
+                  className="max-w-[14rem] truncate px-2 py-0.5 rounded-full border border-i3x-border text-[11.5px] text-i3x-text hover:border-i3x-primary hover:text-i3x-primary transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
+                >
+                  {outlier.label}
+                </button>
+              ))}
+              {finding.outlierCount > finding.outliers.length && (
+                <span className="text-[11px] text-i3x-text-muted">
+                  +{(finding.outlierCount - finding.outliers.length).toLocaleString()} more
+                </span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {insights.length > shown.length && (
+        <p className="mt-3 pt-2 border-t border-i3x-border text-[11px] text-i3x-text-muted">
+          …and {(insights.length - shown.length).toLocaleString()} weaker{' '}
+          {insights.length - shown.length === 1 ? 'pattern' : 'patterns'} not shown.
+        </p>
+      )}
+    </Card>
   )
 }
 
