@@ -81,7 +81,7 @@ const NO_PARENT = '/'
 /** Enough rows to see the shape, few enough to scan. */
 const TOP_N = 8
 
-/** Shared with relationshipInsights: '', '/' and null all mean "no parent". */
+/** Shared with insightsReport: '', '/' and null all mean "no parent". */
 export function hasParent(object: ObjectInstance): boolean {
   return object.parentId != null && object.parentId !== '' && object.parentId !== NO_PARENT
 }
@@ -89,13 +89,22 @@ export function hasParent(object: ObjectInstance): boolean {
 export function computeModelStats(
   objects: ObjectInstance[],
   objectTypes: ObjectType[],
-  namespaceCount: number
+  namespaceCount: number,
+  // Optional pre-built artifacts so getInsightsReport can run the index build
+  // and the depth walk ONCE for both this and the insights report. When shared
+  // depths come from the deduped catalog, the histogram differs from a raw walk
+  // only on catalogs with duplicate elementIds — which the insights quality hub
+  // surfaces anyway.
+  shared?: { index: Map<string, ObjectInstance>; depths: Map<string, number> }
 ): ModelStats {
   const typeLabels = new Map(objectTypes.map(type => [type.elementId, type.displayName || type.elementId]))
   const labelOf = (typeId: string) => typeLabels.get(typeId) ?? typeId ?? '(untyped)'
 
-  const index = new Map<string, ObjectInstance>()
-  for (const object of objects) index.set(object.elementId, object)
+  let index = shared?.index
+  if (!index) {
+    index = new Map<string, ObjectInstance>()
+    for (const object of objects) index.set(object.elementId, object)
+  }
 
   const childCount = new Map<string, number>()
   const typeTally = new Map<string, number>()
@@ -140,7 +149,7 @@ export function computeModelStats(
     childCount.set(parent.elementId, (childCount.get(parent.elementId) ?? 0) + 1)
   }
 
-  const depths = computeDepths(objects, index)
+  const depths = shared?.depths ?? computeDepths(objects, index)
   const depthTally = new Map<number, number>()
   let maxDepth = 0
   for (const depth of depths.values()) {
@@ -210,9 +219,9 @@ export function computeModelStats(
  * Level below the nearest root, memoised across the walk so a deep chain is
  * costed once. A parentId cycle (which some servers do emit) would otherwise
  * spin forever, so the in-progress set breaks it and treats the entry point as a
- * root.
+ * root. (Exported for insightsReport's per-type depth ranges.)
  */
-function computeDepths(
+export function computeDepths(
   objects: ObjectInstance[],
   index: Map<string, ObjectInstance>
 ): Map<string, number> {

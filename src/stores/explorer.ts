@@ -210,11 +210,30 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   relationshipView: 'tree',
   subtreeDepth: DEFAULT_SUBTREE_DEPTH,
 
-  setNamespaces: (namespaces) => set({ namespaces }),
-  setObjectTypes: (types) => set({
-    objectTypes: types,
-    typeIndex: new Map(types.map(t => [t.elementId, t])),
-  }),
+  // The 30s background poll re-fetches namespaces and types unconditionally
+  // and would store a brand-new array every tick even when nothing changed.
+  // Downstream memos key on array identity (getInsightsReport recomputes a
+  // ~130ms report at 100k objects on any miss), so when the content is
+  // byte-identical we keep the old reference and skip the write entirely —
+  // no re-render, no recompute. Both lists are small (namespaces a handful,
+  // types at most hundreds), so the stringify costs microseconds-to-low-ms
+  // once per poll tick, three orders of magnitude under what it saves.
+  setNamespaces: (namespaces) => {
+    const current = get().namespaces
+    if (
+      current.length === namespaces.length &&
+      JSON.stringify(current) === JSON.stringify(namespaces)
+    ) return
+    set({ namespaces })
+  },
+  setObjectTypes: (types) => {
+    const current = get().objectTypes
+    if (current.length === types.length && JSON.stringify(current) === JSON.stringify(types)) return
+    set({
+      objectTypes: types,
+      typeIndex: new Map(types.map(t => [t.elementId, t])),
+    })
+  },
 
   setObjects: (typeId, objects) => {
     const current = get().objects

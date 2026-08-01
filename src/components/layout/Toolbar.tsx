@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useConnectionStore } from '../../stores/connection'
 import { useExplorerStore } from '../../stores/explorer'
 import { useDiffStore } from '../../stores/diff'
+import { useInsightsStore } from '../../stores/insights'
 import { performConnect, performDisconnect } from '../../services/connection'
 import { SearchModal } from '../search/SearchModal'
 import { SearchIcon, CheckIcon, RedirectIcon, BlockedIcon, CameraIcon } from '../common/icons'
@@ -99,11 +100,13 @@ export function Toolbar() {
   })))
 
   // Clearing the selection is what "Home" means, the main panel renders its
-  // Home shell whenever nothing is selected. Home also leaves the diff view —
-  // its store only auto-closes on selection *changes*, and Home-while-on-Home
-  // isn't one.
+  // Home shell whenever nothing is selected. Home also leaves the diff and
+  // insights views — their stores only auto-close on selection *changes*, and
+  // Home-while-on-Home isn't one (the insights page is even opened FROM Home,
+  // so its selection is always null while it's up).
   const showHome = () => {
     closeDiffView()
+    useInsightsStore.getState().closeView()
     selectItem(null)
   }
 

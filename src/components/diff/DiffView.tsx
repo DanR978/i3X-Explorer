@@ -8,7 +8,8 @@ import { useElementNavigation } from '../main/navigation'
 import { InfoHint } from '../main/InfoHint'
 import { Card, SegmentedControl } from '../main/primitives'
 import { Spinner } from '../common/Spinner'
-import { CloseIcon, CopyIcon, RefreshIcon, CheckIcon } from '../common/icons'
+import { CopyJsonButton } from '../common/CopyJsonButton'
+import { CloseIcon, RefreshIcon, CheckIcon } from '../common/icons'
 import { getClient } from '../../api/client'
 import type { CatalogDiff, ObjectChange, FieldDelta, ChangedSubtree } from './diffEngine'
 import type { Snapshot } from './snapshot'
@@ -555,31 +556,6 @@ function changeSummary(change: ObjectChange): string {
   if (change.namespaceUri) parts.push(deltaText('namespace', change.namespaceUri))
   if (change.metadataOnly) parts.push('metadata changed')
   return parts.join(' · ') || change.elementId
-}
-
-/** Like CopyButton, but the payload is built on click — never eagerly. */
-function CopyJsonButton({ build, title }: { build: () => string; title: string }) {
-  const [copied, setCopied] = useState(false)
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(build())
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard unavailable (insecure context) — fail quietly, as CopyButton does.
-    }
-  }
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      title={copied ? 'Copied!' : title}
-      aria-label={title}
-      className="p-1 rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
-    >
-      {copied ? <CheckIcon size={14} className="text-i3x-success" /> : <CopyIcon size={14} />}
-    </button>
-  )
 }
 
 /** Where in the model the change landed: the busiest root-level ancestors. */

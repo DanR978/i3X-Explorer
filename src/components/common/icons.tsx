@@ -260,6 +260,23 @@ export const CopyIcon = (p: IconProps) => (
   </Icon>
 )
 
+/** Model insights: lightbulb. */
+export const InsightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3a6 6 0 0 0-4 10.5c.9.8 1.4 1.6 1.6 2.5h4.8c.2-.9.7-1.7 1.6-2.5A6 6 0 0 0 12 3z" />
+    <path d="M9.5 19h5" />
+    <path d="M10.5 21.5h3" />
+  </Icon>
+)
+
+/** A population split: one path forking into two. */
+export const SplitIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12h4c3.5 0 3.5-4.5 7-4.5h7" />
+    <path d="M7 12c3.5 0 3.5 4.5 7 4.5h7" />
+  </Icon>
+)
+
 /** Snapshot: camera. */
 export const CameraIcon = (p: IconProps) => (
   <Icon {...p}>
