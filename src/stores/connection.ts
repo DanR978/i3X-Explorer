@@ -76,7 +76,7 @@ interface ConnectionState {
   ignoreCertErrors: boolean
   // Connect-flow modals (not persisted). They live here rather than in Toolbar
   // state so the connect flow itself (services/connection.ts) can raise them
-  // from any call site — Toolbar's Connect button or the dialog's reconnect.
+  // from any call site, Toolbar's Connect button or the dialog's reconnect.
   redirectNotice: { from: string; to: string } | null
   v0Blocked: boolean
 

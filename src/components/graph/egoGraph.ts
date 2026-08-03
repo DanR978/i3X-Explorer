@@ -1,6 +1,6 @@
 import type { I3XClient } from '../../api/client'
 import type { ObjectInstance } from '../../api/types'
-import { bucketOf, type RelationshipBucket } from './relationshipColors'
+import { BUCKET_ORDER, bucketOf, type RelationshipBucket } from './relationshipColors'
 
 /**
  * The ego graph: everything reachable from one element within N relationship
@@ -61,14 +61,6 @@ export interface StoreView {
 
 /** v0 has no batch endpoint, so a wide frontier becomes many requests. Don't open them all at once. */
 const V0_CONCURRENCY = 6
-
-/** Rank used to order relationships consistently in both the graph and the list. */
-const BUCKET_ORDER: Record<RelationshipBucket, number> = {
-  parent: 0,
-  child: 1,
-  inherits: 2,
-  other: 3,
-}
 
 /**
  * Every direct relationship of `object`: what the server returned, unioned with
@@ -160,13 +152,13 @@ async function fetchFrontier(
  * Walk `depth` hops out from `root`, downward.
  *
  * The root shows all its direct relationships (its parent, its children, and any
- * other links). Past the root the walk only ever descends — it follows child
- * edges and nothing else — so the parent is shown one level up and never expanded:
+ * other links). Past the root the walk only ever descends, it follows child
+ * edges and nothing else, so the parent is shown one level up and never expanded:
  * no grandparents and no siblings. To see further up, root the map on the parent
  * and drill down from there.
  *
  * With `descendantsOnly` the root gets no special treatment either: child edges
- * from the very first hop, so the result is the pure subtree beneath the root —
+ * from the very first hop, so the result is the pure subtree beneath the root,
  * no parent, no non-hierarchy links. This is what the Subtree tab draws.
  *
  * `cancelled` is checked after every level so a depth change or a navigation
@@ -222,7 +214,7 @@ export async function expandEgoGraph({
             viaBucket: bucket,
           })
           // Only downstream nodes expand further, so the parent (and any
-          // non-hierarchy links off the root) are shown once and left as leaves —
+          // non-hierarchy links off the root) are shown once and left as leaves,
           // 1 up and root, then children, grandchildren, and so on.
           if (downstream) next.push(neighbor.object)
         }

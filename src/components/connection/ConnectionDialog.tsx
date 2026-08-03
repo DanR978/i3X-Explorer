@@ -56,7 +56,7 @@ export function ConnectionDialog() {
   }
 
   // The live client captured its URL and credentials at construction, so a
-  // Save that changes either while connected must reconnect — otherwise the
+  // Save that changes either while connected must reconnect, otherwise the
   // status bar shows the new server while requests keep hitting the old one.
   // (ignoreCertErrors applies live via IPC and never needs a reconnect.)
   const changesConnection = (newCredentials: Credentials | null) =>

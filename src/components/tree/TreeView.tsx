@@ -8,6 +8,7 @@ import { TreeNode, TreeMoreNode, TreeRowIcon, IndentGuides } from './TreeNode'
 import { buildTreeMenu } from './treeMenu'
 import { Chevron } from '../common/Chevron'
 import { ContextMenu, type MenuEntry } from '../common/ContextMenu'
+import { NumberPromptDialog } from '../common/NumberPromptDialog'
 import { useElementNavigation } from '../main/navigation'
 import {
   buildTreeRows,
@@ -50,7 +51,7 @@ function findTypeAhead(rows: TreeRow[], from: number, buffer: string): number {
 }
 
 /**
- * The sidebar tree. The ENTIRE tree — Namespaces, Objects, Hierarchy — is one
+ * The sidebar tree. The ENTIRE tree, Namespaces, Objects, Hierarchy, is one
  * flattened row array (buildTreeRows) windowed by a single virtualizer, so the
  * DOM holds only the rows near the viewport no matter how many are visible.
  * Huge child lists are additionally paged with "Show more" rows (see
@@ -210,16 +211,23 @@ export function TreeView() {
   // Entries are built at open time (buildTreeMenu) and capture the row's data
   // in closures, so they stay valid even if the row list shifts underneath.
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null)
+  // "Show a specific number…" from a "Show more" row's menu. Electron's
+  // renderer has no window.prompt, so the count comes from a real dialog.
+  const [pagePrompt, setPagePrompt] = useState<{ parentId: string; hidden: number } | null>(null)
   const { selectElement } = useElementNavigation()
+
+  const promptForChildCount = useCallback((parentId: string, hidden: number) => {
+    setPagePrompt({ parentId, hidden })
+  }, [])
 
   const openMenuForRow = useCallback((index: number, x: number, y: number) => {
     const row = rows[index]
     if (!row) return
-    const entries = buildTreeMenu(row, selectElement)
+    const entries = buildTreeMenu(row, selectElement, promptForChildCount)
     if (!entries) return
     setFocusedIndex(index)
     setMenu({ x, y, entries })
-  }, [rows, selectElement])
+  }, [rows, selectElement, promptForChildCount])
 
   const closeMenu = useCallback(() => {
     setMenu(null)
@@ -351,7 +359,7 @@ export function TreeView() {
 
   // ── Reveal the selected node ──────────────────────────────────────────────
   // Uniform row heights mean every row has a position whether mounted or not,
-  // so reveal is pure index math — no DOM probing across tree sections.
+  // so reveal is pure index math, no DOM probing across tree sections.
   const lastRevealedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedId) return
@@ -638,6 +646,28 @@ export function TreeView() {
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={closeMenu} />}
+
+      {pagePrompt && (
+        <NumberPromptDialog
+          title="Show more children"
+          description={`${pagePrompt.hidden.toLocaleString()} ${
+            pagePrompt.hidden === 1 ? 'child is' : 'children are'
+          } still hidden under this node.`}
+          label="How many more to show?"
+          initial={Math.min(pagePrompt.hidden, CHILD_PAGE_SIZE * 4)}
+          min={1}
+          max={pagePrompt.hidden}
+          onConfirm={count => {
+            useExplorerStore.getState().raiseChildLimit(pagePrompt.parentId, count)
+            setPagePrompt(null)
+            scrollRef.current?.focus({ preventScroll: true })
+          }}
+          onCancel={() => {
+            setPagePrompt(null)
+            scrollRef.current?.focus({ preventScroll: true })
+          }}
+        />
+      )}
     </div>
   )
 }

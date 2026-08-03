@@ -15,7 +15,7 @@ const SKELETON_ROWS: Array<[number, number]> = [
 
 /**
  * Pulsing stand-in for the tree while the object catalog is being fetched.
- * Stays up until the catalog actually lands — isLoading covers the whole
+ * Stays up until the catalog actually lands, isLoading covers the whole
  * object-list prefetch (see services/connection.ts), so the tree never
  * flashes empty between skeleton and data.
  */

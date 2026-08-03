@@ -13,20 +13,41 @@ import {
  * and the full Model Insights page, so their numbers can never disagree.
  *
  * The organizing idea (from real-catalog feedback): a bare outlier list is
- * lint, not insight. Every statement here is one of four honest kinds —
+ * lint, not insight. Every statement here is one of four honest kinds:
  *
- *   TypeProfile  — the inferred schema per type: where instances live, what
- *                  they contain (with cardinality), how deep, how they're named
- *   Convention   — a norm phrased affirmatively. 100% norms are the site's
- *                  implicit modeling documentation, not silence
- *   Deviation    — a strong norm with few exceptions, ranked by a Wilson
- *                  lower bound (990/1000 outranks 9/10) and EXPLAINED:
- *                  outliers are grouped by where they actually sit
- *   Split        — a norm whose exceptions are a population, not defects
- *                  ("94% under X, 6% under Y") — presented as a distribution
+ *   TypeProfile  the inferred schema per type: where instances live, what
+ *                they contain (with cardinality), how deep, how they're named
+ *   Convention   a norm phrased affirmatively. 100% norms are the site's
+ *                implicit modeling documentation, not silence
+ *   Deviation    a strong norm with few exceptions, ranked by a Wilson
+ *                lower bound (990/1000 outranks 9/10) and EXPLAINED:
+ *                outliers are grouped by where they actually sit
+ *   Split        a norm whose exceptions are a population, not defects
+ *                ("94% under X, 6% under Y"), presented as a distribution
+ *
+ * WHY A NORM ALSO HAS TO BE INFORMATIVE (MIN_NORM_LIFT)
+ *
+ * "Do at least 90% of the instances agree?" is only half a test. If a model
+ * has exactly one container type, then "Every Pump sits under a Station" is
+ * true of Pumps, Valves, Sensors and everything else: it is the shape of the
+ * catalog, not a convention Pumps follow. A first pass shipped without this
+ * check and produced 51 conventions on a real catalog, most of them true and
+ * none of them worth reading, which is how a findings list becomes wallpaper.
+ *
+ * So every candidate norm is also measured against the catalog-wide base rate
+ * for the same pattern, computed over the REST of the catalog (the type's own
+ * instances are excluded, or a type that dominates the catalog would set its
+ * own baseline and never look surprising). lift = coverage / base rate, and a
+ * norm must clear MIN_NORM_LIFT to be "notable". Notable norms are the ones
+ * that establish Conventions with exceptions, produce Deviations, and score
+ * anomalies. The rest stay in the report, flagged `notable: false`, because
+ * they are still true statements about the model; the page folds them away
+ * instead of deleting them. When there is nothing to compare against (the
+ * catalog is entirely one type) lift is Infinity: the gate only fires on
+ * positive evidence that a pattern is unremarkable.
  *
  * No ML, deliberately: every claim is an exact count with its evidence
- * attached, and everything derives from `parentId` links and displayNames —
+ * attached, and everything derives from `parentId` links and displayNames,
  * the only facts knowable without per-object round trips. All passes are
  * linear (Maps, no chain re-walks); see insightsReport.perf.test.ts for the
  * measured number.
@@ -36,6 +57,15 @@ import {
 export const MIN_NORM_INSTANCES = 8
 /** Fraction of instances that must agree for a pattern to count as a norm. */
 export const NORM_THRESHOLD = 0.9
+/**
+ * How much more often a type must show a pattern than the rest of the catalog
+ * does before the pattern counts as that type's convention. 1.5 means "at
+ * least half again as likely": at full coverage it clears anything the rest of
+ * the catalog already does more than two thirds of the time. Below this the
+ * norm holds but says nothing specific about the type, so it never produces a
+ * deviation and never scores an anomaly. See the file header for why.
+ */
+export const MIN_NORM_LIFT = 1.5
 /** Exceptions are a split (not defects) past this share of the type… */
 export const SPLIT_MASS_SHARE = 0.05
 /** …when at least this fraction of them concentrate in ONE alternative pattern. */
@@ -112,7 +142,7 @@ export interface Convention {
   /** Child type (missing-child) or parent type (unusual-parent). */
   relatedTypeId?: string
   relatedTypeLabel?: string
-  /** "exactly 1" / "typically 2" — set for containment norms with tight cardinality. */
+  /** "exactly 1" / "typically 2", set for containment norms with tight cardinality. */
   cardinalityText?: string
   /** Name pattern (naming conventions). */
   signature?: string
@@ -120,6 +150,19 @@ export interface Convention {
   total: number
   /** 1.0 = a perfect norm; < 1 = a near-norm whose exceptions live in a Deviation. */
   coverage: number
+  /**
+   * How often the REST of the catalog shows this same pattern. null when there
+   * is no rest of the catalog to compare against (every object is this type).
+   */
+  baseRate: number | null
+  /** coverage / baseRate. Infinity when nothing else in the catalog does this. */
+  lift: number
+  /**
+   * lift >= MIN_NORM_LIFT: the type is meaningfully more constrained than the
+   * catalog at large, so this is a convention rather than the model's shape.
+   * Only notable norms produce Deviations and anomaly points.
+   */
+  notable: boolean
 }
 
 export interface OutlierGroup {
@@ -129,7 +172,7 @@ export interface OutlierGroup {
   /** Set when every member sits inside one subtree (unusual-parent groups only). */
   subtreeRootId: string | null
   subtreeRootLabel: string | null
-  /** The FULL list — never capped here; the UI windows it. */
+  /** The FULL list, never capped here; the UI windows it. */
   members: InsightRef[]
 }
 
@@ -143,7 +186,7 @@ export interface Deviation {
   conforming: number
   total: number
   coverage: number
-  /** Wilson 95% lower bound on coverage — the ranking key. */
+  /** Wilson 95% lower bound on coverage, the ranking key. */
   strength: number
   /** Sorted by member count desc. Member counts sum to outlierCount. */
   groups: OutlierGroup[]
@@ -170,6 +213,13 @@ export interface AnomalyEntry {
   elementId: string
   label: string
   typeLabel: string
+  /**
+   * Where it sits (the parent's label, or '(at root)'). Same job as
+   * InsightRef.context: without it two objects sharing a display name and a
+   * type render as identical rows, which is the failure this list exists to
+   * fix rather than repeat.
+   */
+  context: string
   /** Number of independent norms this one object breaks. */
   score: number
   reasons: string[]
@@ -178,16 +228,33 @@ export interface AnomalyEntry {
 export interface DataQuality {
   orphans: InsightRef[]
   untyped: InsightRef[]
+  /**
+   * Declared but never instantiated. NOT an issue: in I3X a namespace is a
+   * type library, so publishing a profile with types this server doesn't use
+   * is normal. Kept browsable, counted separately from the issue total.
+   */
   unusedTypes: { typeId: string; label: string }[]
   duplicateElementIds: { elementId: string; count: number }[]
 }
 
 export interface InsightsSummary {
   typesAnalyzed: number
+  /** Notable conventions only: the headline number has to mean something. */
   conventions: number
+  /** Norms that hold but match the catalog at large. Browsable, not headline. */
+  trivialConventions: number
+  /**
+   * How many of `conventions` have exceptions. Each of those also appears in
+   * `deviations`, so the two tiles overlap by exactly this much and the page
+   * says so instead of printing two numbers that quietly share rows.
+   */
+  conventionsWithExceptions: number
   deviations: number
   splits: number
+  /** Orphans + untyped + duplicate elementIds. Unused types are not issues. */
   dataQualityIssues: number
+  /** Declared types with no instances: informational, see DataQuality. */
+  unusedTypes: number
 }
 
 export interface InsightsReport {
@@ -220,7 +287,7 @@ export function nameSignature(name: string): string {
   let out = ''
   let run: 'A' | '9' | null = null
   for (const ch of name) {
-    // ASCII fast path first — this runs per character over the whole catalog,
+    // ASCII fast path first, this runs per character over the whole catalog,
     // and Unicode property tests are several times the cost of a range check.
     const code = ch.charCodeAt(0)
     const kind =
@@ -255,7 +322,7 @@ function isInformativeSignature(signature: string): boolean {
 /**
  * Wilson score lower bound (default 95%) on the proportion k/n: "how sure are
  * we the true conformance is at least this". Ranks 990/1000 above 9/10 even
- * though both are 90–99% raw — small samples earn less confidence. Standard
+ * though both are 90–99% raw, small samples earn less confidence. Standard
  * closed form, no dependencies.
  */
 export function wilsonLower(k: number, n: number, z = 1.96): number {
@@ -266,6 +333,43 @@ export function wilsonLower(k: number, n: number, z = 1.96): number {
   const center = p + z2 / (2 * n)
   const margin = z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))
   return Math.max(0, (center - margin) / denominator)
+}
+
+export interface NormLift {
+  baseRate: number | null
+  lift: number
+  notable: boolean
+}
+
+/**
+ * Could this norm have been otherwise? Compares how often the type shows a
+ * pattern against how often the REST of the catalog shows it. Excluding the
+ * type's own instances matters: a type holding most of the catalog would
+ * otherwise set its own baseline and always score a lift of ~1.
+ *
+ * A base rate of 0 (nothing else in the catalog does this) is the maximally
+ * informative case, so lift is Infinity rather than a division error. So is
+ * an empty comparison population: the gate fires only on positive evidence
+ * that a pattern is unremarkable, never on absence of evidence.
+ */
+export function normLift(
+  typeCount: number,
+  typeTotal: number,
+  globalCount: number,
+  globalTotal: number
+): NormLift {
+  const restCount = globalCount - typeCount
+  const restTotal = globalTotal - typeTotal
+  if (restTotal <= 0) return { baseRate: null, lift: Infinity, notable: true }
+  const baseRate = restCount / restTotal
+  const coverage = typeTotal > 0 ? typeCount / typeTotal : 0
+  const lift = baseRate > 0 ? coverage / baseRate : Infinity
+  return { baseRate, lift, notable: lift >= MIN_NORM_LIFT }
+}
+
+/** Descending compare that survives Infinity on both sides (NaN-free). */
+function byDescending(a: number, b: number): number {
+  return a === b ? 0 : b > a ? 1 : -1
 }
 
 /* ── special placement buckets ────────────────────────────────────────────── */
@@ -292,7 +396,7 @@ function isRealTypeBucket(key: string): boolean {
 
 /**
  * The linear artifacts every pass needs: last-wins index, duplicate counts,
- * the deduped catalog view, and per-object depths. Built once and shared —
+ * the deduped catalog view, and per-object depths. Built once and shared,
  * getInsightsReport hands the same scan to computeModelStats and
  * computeInsightsReport so the 100k index build and the depth walk (the most
  * expensive linear pass in either module) never run twice per catalog.
@@ -301,7 +405,7 @@ export interface CatalogScan {
   index: Map<string, ObjectInstance>
   /** elementId → occurrences beyond the first (only ids that collided). */
   duplicateTally: Map<string, number>
-  /** Deduped, last-wins view — the semantics of every other index in the app. */
+  /** Deduped, last-wins view, the semantics of every other index in the app. */
   catalog: ObjectInstance[]
   depths: Map<string, number>
 }
@@ -347,30 +451,79 @@ export function computeInsightsReport(
   const childCounts = new Map<string, Map<string, number>>() // parent elementId → child typeId → count
   const orphans: InsightRef[] = []
   const untyped: InsightRef[] = []
+  // Placement and naming buckets, per type AND catalog-wide, built here rather
+  // than per type further down. Resolving a parent and taking a name signature
+  // are the two costly per-object steps, and the base rates behind the
+  // informativeness gate (see normLift) need both over the whole catalog
+  // anyway, so pass 3 reads these instead of walking every instance again.
+  const placementByType = new Map<string, Map<string, ObjectInstance[]>>()
+  const signatureByType = new Map<string, Map<string, ObjectInstance[]>>()
+  const globalPlacement = new Map<string, number>()
+  const globalSignature = new Map<string, number>()
+
+  const bucketInto = (
+    byType: Map<string, Map<string, ObjectInstance[]>>,
+    typeId: string,
+    key: string,
+    object: ObjectInstance
+  ) => {
+    let buckets = byType.get(typeId)
+    if (!buckets) {
+      buckets = new Map()
+      byType.set(typeId, buckets)
+    }
+    const members = buckets.get(key)
+    if (members) members.push(object)
+    else buckets.set(key, [object])
+  }
 
   for (const object of catalog) {
-    if (object.typeId) {
-      const list = instancesByType.get(object.typeId)
+    const typeId = object.typeId
+    if (typeId) {
+      const list = instancesByType.get(typeId)
       if (list) list.push(object)
-      else instancesByType.set(object.typeId, [object])
+      else instancesByType.set(typeId, [object])
     } else {
       untyped.push(refOf(object))
     }
 
-    if (!hasParent(object)) continue
-    const parent = index.get(object.parentId as string)
+    const signature = nameSignature(object.displayName || '')
+    globalSignature.set(signature, (globalSignature.get(signature) ?? 0) + 1)
+    if (typeId) bucketInto(signatureByType, typeId, signature, object)
+
+    const parented = hasParent(object)
+    const parent = parented ? index.get(object.parentId as string) : undefined
+    const placementKey = !parented
+      ? BUCKET_ROOT
+      : !parent
+        ? BUCKET_ORPHAN
+        : parent.typeId || BUCKET_UNTYPED_PARENT
+    globalPlacement.set(placementKey, (globalPlacement.get(placementKey) ?? 0) + 1)
+    if (typeId) bucketInto(placementByType, typeId, placementKey, object)
+
+    if (!parented) continue
     if (!parent) {
       orphans.push(refOf(object))
       continue
     }
-    if (!object.typeId) continue
+    if (!typeId) continue
     let counts = childCounts.get(parent.elementId)
     if (!counts) {
       counts = new Map()
       childCounts.set(parent.elementId, counts)
     }
-    counts.set(object.typeId, (counts.get(object.typeId) ?? 0) + 1)
+    counts.set(typeId, (counts.get(typeId) ?? 0) + 1)
   }
+
+  // How many objects anywhere in the catalog hold at least one child of each
+  // type: the base rate a containment norm has to beat.
+  const globalChildPresence = new Map<string, number>()
+  for (const counts of childCounts.values()) {
+    for (const childTypeId of counts.keys()) {
+      globalChildPresence.set(childTypeId, (globalChildPresence.get(childTypeId) ?? 0) + 1)
+    }
+  }
+  const catalogSize = catalog.length
 
   // Shared memo across every subtree-root walk in the report.
   const rootCache = new Map<string, string>()
@@ -393,18 +546,8 @@ export function computeInsightsReport(
     const total = instances.length
     const normable = total >= MIN_NORM_INSTANCES
 
-    // Placement buckets, members kept internally for outlier/example lists.
-    const placementMembers = new Map<string, ObjectInstance[]>()
-    for (const instance of instances) {
-      let key = BUCKET_ROOT
-      if (hasParent(instance)) {
-        const parent = index.get(instance.parentId as string)
-        key = !parent ? BUCKET_ORPHAN : parent.typeId ? parent.typeId : BUCKET_UNTYPED_PARENT
-      }
-      const members = placementMembers.get(key)
-      if (members) members.push(instance)
-      else placementMembers.set(key, [instance])
-    }
+    // Placement buckets (from pass 2), members kept for outlier/example lists.
+    const placementMembers = placementByType.get(typeId) ?? new Map<string, ObjectInstance[]>()
     const buckets = [...placementMembers.entries()]
       .map(([key, members]) => ({ key, members, count: members.length }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
@@ -454,14 +597,8 @@ export function computeInsightsReport(
         (a, b) => b.presenceShare - a.presenceShare || a.childTypeLabel.localeCompare(b.childTypeLabel)
       )
 
-    // Naming signatures.
-    const signatureMembers = new Map<string, ObjectInstance[]>()
-    for (const instance of instances) {
-      const signature = nameSignature(instance.displayName || '')
-      const members = signatureMembers.get(signature)
-      if (members) members.push(instance)
-      else signatureMembers.set(signature, [instance])
-    }
+    // Naming signatures (from pass 2).
+    const signatureMembers = signatureByType.get(typeId) ?? new Map<string, ObjectInstance[]>()
     let dominantSignature: { signature: string; members: ObjectInstance[] } | null = null
     for (const [signature, members] of signatureMembers) {
       if (!isInformativeSignature(signature)) continue
@@ -513,13 +650,21 @@ export function computeInsightsReport(
 
     // ── placement norm / split ────────────────────────────────────────────
     // Root, orphan and untyped-parent buckets never establish a norm: "usually
-    // homeless" isn't a convention. They can still be split populations — a
+    // homeless" isn't a convention. They can still be split populations, a
     // split is descriptive, not normative.
     const normBucket = buckets.find(bucket => isRealTypeBucket(bucket.key))
     if (normBucket) {
       const normShare = normBucket.count / total
       const outlierBuckets = buckets.filter(bucket => bucket !== normBucket)
       const outlierCount = total - normBucket.count
+      // Does this type sit under that parent type more than the rest of the
+      // catalog does? If not, it is the model's shape, not the type's rule.
+      const informativeness = normLift(
+        normBucket.count,
+        total,
+        globalPlacement.get(normBucket.key) ?? 0,
+        catalogSize
+      )
 
       if (normShare === 1) {
         conventions.push({
@@ -531,6 +676,7 @@ export function computeInsightsReport(
           conforming: total,
           total,
           coverage: 1,
+          ...informativeness,
         })
       } else if (normShare >= NORM_THRESHOLD) {
         const second = outlierBuckets[0]
@@ -553,41 +699,46 @@ export function computeInsightsReport(
             conforming: normBucket.count,
             total,
             coverage: normShare,
+            ...informativeness,
           })
-          const groups = outlierBuckets.map(bucket =>
-            makeOutlierGroup(
-              bucket.key,
-              bucketLabel(bucket.key),
-              bucket.members,
-              index,
-              rootCache,
-              refOf
-            )
-          )
-          deviations.push({
-            kind: 'unusual-parent',
-            typeId,
-            typeLabel,
-            relatedTypeId: normBucket.key,
-            relatedTypeLabel: bucketLabel(normBucket.key),
-            conforming: normBucket.count,
-            total,
-            coverage: normShare,
-            strength: wilsonLower(normBucket.count, total),
-            groups,
-            outlierCount,
-          })
-          for (const bucket of outlierBuckets) {
-            for (const member of bucket.members) {
-              flag(
-                member,
-                `sits under ${bucketLabel(bucket.key)} (${typeLabel} norm: ${bucketLabel(normBucket.key)})`
+          // Exceptions to an unremarkable norm are not evidence of anything:
+          // no deviation, no anomaly points.
+          if (informativeness.notable) {
+            const groups = outlierBuckets.map(bucket =>
+              makeOutlierGroup(
+                bucket.key,
+                bucketLabel(bucket.key),
+                bucket.members,
+                index,
+                rootCache,
+                refOf
               )
+            )
+            deviations.push({
+              kind: 'unusual-parent',
+              typeId,
+              typeLabel,
+              relatedTypeId: normBucket.key,
+              relatedTypeLabel: bucketLabel(normBucket.key),
+              conforming: normBucket.count,
+              total,
+              coverage: normShare,
+              strength: wilsonLower(normBucket.count, total),
+              groups,
+              outlierCount,
+            })
+            for (const bucket of outlierBuckets) {
+              for (const member of bucket.members) {
+                flag(
+                  member,
+                  `sits under ${bucketLabel(bucket.key)} (${typeLabel} norm: ${bucketLabel(normBucket.key)})`
+                )
+              }
             }
           }
         }
       } else {
-        // No dominant norm — is it a clean two-population split?
+        // No dominant norm, is it a clean two-population split?
         const top1 = buckets[0]
         const top2 = buckets[1]
         const isSplit =
@@ -609,8 +760,16 @@ export function computeInsightsReport(
       // Self-containment never makes a norm: in a finite tree a recursive type
       // (Location under Location) always has leaves, so "N% contain their own type"
       // would flag every chain tail as a defect. The atlas profile still shows
-      // the self-child stat — it's real structure, just not a promise.
+      // the self-child stat, it's real structure, just not a promise.
       if (stat.childTypeId === typeId) continue
+      // Same question as for placement: does holding this child type actually
+      // distinguish the type, or does most of the catalog hold one too?
+      const informativeness = normLift(
+        stat.presence,
+        total,
+        globalChildPresence.get(stat.childTypeId) ?? 0,
+        catalogSize
+      )
       if (stat.presenceShare === 1) {
         conventions.push({
           kind: 'missing-child',
@@ -622,6 +781,7 @@ export function computeInsightsReport(
           conforming: total,
           total,
           coverage: 1,
+          ...informativeness,
         })
       } else if (stat.presenceShare >= NORM_THRESHOLD) {
         conventions.push({
@@ -634,7 +794,9 @@ export function computeInsightsReport(
           conforming: stat.presence,
           total,
           coverage: stat.presenceShare,
+          ...informativeness,
         })
+        if (!informativeness.notable) continue
         const missing = instances.filter(
           instance => !childCounts.get(instance.elementId)?.has(stat.childTypeId)
         )
@@ -658,6 +820,14 @@ export function computeInsightsReport(
     // ── naming norm ───────────────────────────────────────────────────────
     if (dominantSignature && namingShare >= NORM_THRESHOLD) {
       const signature = dominantSignature.signature
+      // A name shape the whole catalog already uses is house style, not this
+      // type's naming convention.
+      const informativeness = normLift(
+        dominantSignature.members.length,
+        total,
+        globalSignature.get(signature) ?? 0,
+        catalogSize
+      )
       if (namingShare === 1) {
         conventions.push({
           kind: 'naming',
@@ -667,6 +837,7 @@ export function computeInsightsReport(
           conforming: total,
           total,
           coverage: 1,
+          ...informativeness,
         })
       } else {
         conventions.push({
@@ -677,33 +848,36 @@ export function computeInsightsReport(
           conforming: dominantSignature.members.length,
           total,
           coverage: namingShare,
+          ...informativeness,
         })
-        const deviantGroups = [...signatureMembers.entries()]
-          .filter(([candidate]) => candidate !== signature)
-          .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-          .map(([candidate, members]) => ({
-            keyId: candidate,
-            keyLabel: candidate === '' ? '(unnamed)' : candidate,
-            subtreeRootId: null,
-            subtreeRootLabel: null,
-            members: members.map(refOf),
-          }))
-        const outlierCount = total - dominantSignature.members.length
-        deviations.push({
-          kind: 'naming',
-          typeId,
-          typeLabel,
-          signature,
-          conforming: dominantSignature.members.length,
-          total,
-          coverage: namingShare,
-          strength: wilsonLower(dominantSignature.members.length, total),
-          groups: deviantGroups,
-          outlierCount,
-        })
-        for (const [candidate, members] of signatureMembers) {
-          if (candidate === signature) continue
-          for (const member of members) flag(member, `name breaks ${signature}`)
+        if (informativeness.notable) {
+          const deviantGroups = [...signatureMembers.entries()]
+            .filter(([candidate]) => candidate !== signature)
+            .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+            .map(([candidate, members]) => ({
+              keyId: candidate,
+              keyLabel: candidate === '' ? '(unnamed)' : candidate,
+              subtreeRootId: null,
+              subtreeRootLabel: null,
+              members: members.map(refOf),
+            }))
+          const outlierCount = total - dominantSignature.members.length
+          deviations.push({
+            kind: 'naming',
+            typeId,
+            typeLabel,
+            signature,
+            conforming: dominantSignature.members.length,
+            total,
+            coverage: namingShare,
+            strength: wilsonLower(dominantSignature.members.length, total),
+            groups: deviantGroups,
+            outlierCount,
+          })
+          for (const [candidate, members] of signatureMembers) {
+            if (candidate === signature) continue
+            for (const member of members) flag(member, `name breaks ${signature}`)
+          }
         }
       }
     }
@@ -713,8 +887,12 @@ export function computeInsightsReport(
   profiles.sort(
     (a, b) => b.instanceCount - a.instanceCount || a.typeLabel.localeCompare(b.typeLabel)
   )
+  // Notable first, then most-surprising first: lift is what separates "the
+  // model happens to be shaped this way" from a rule the type actually keeps.
   conventions.sort(
     (a, b) =>
+      Number(b.notable) - Number(a.notable) ||
+      byDescending(a.lift, b.lift) ||
       b.coverage - a.coverage ||
       b.total - a.total ||
       a.typeLabel.localeCompare(b.typeLabel) ||
@@ -736,6 +914,7 @@ export function computeInsightsReport(
     elementId: entry.object.elementId,
     label: entry.object.displayName || entry.object.elementId,
     typeLabel: labelOf(entry.object.typeId ?? ''),
+    context: refOf(entry.object).context,
     score: entry.reasons.length,
     reasons: entry.reasons,
   }))
@@ -749,14 +928,23 @@ export function computeInsightsReport(
 
   const dataQuality: DataQuality = { orphans, untyped, unusedTypes, duplicateElementIds }
 
+  const notableConventions = conventions.filter(convention => convention.notable)
+
   return {
     summary: {
       typesAnalyzed: profiles.length,
-      conventions: conventions.length,
+      conventions: notableConventions.length,
+      trivialConventions: conventions.length - notableConventions.length,
+      // Every notable norm with exceptions produced exactly one deviation, so
+      // this is precisely the overlap between the two headline numbers.
+      conventionsWithExceptions: notableConventions.filter(c => c.coverage < 1).length,
       deviations: deviations.length,
       splits: splits.length,
-      dataQualityIssues:
-        orphans.length + untyped.length + unusedTypes.length + duplicateElementIds.length,
+      // Unused types are deliberately NOT in here: a namespace is a type
+      // library, so declaring types this server never instantiates is normal.
+      // Counting them made the page's biggest number its most benign fact.
+      dataQualityIssues: orphans.length + untyped.length + duplicateElementIds.length,
+      unusedTypes: unusedTypes.length,
     },
     profiles,
     conventions,
@@ -818,7 +1006,7 @@ function makeOutlierGroup(
   rootCache: Map<string, string>,
   refOf: (object: ObjectInstance) => InsightRef
 ): OutlierGroup {
-  // "All within NORTHSITE" — only when every member resolves to one subtree root
+  // "All within NORTHSITE", only when every member resolves to one subtree root
   // that isn't the member itself (a group of top-level strays has no story).
   let commonRoot: string | null | undefined
   for (const member of members) {
@@ -933,26 +1121,35 @@ export function conventionText(convention: Convention): string {
   }
 }
 
-export function deviationHeadline(deviation: Deviation): string {
-  const { typeLabel, relatedTypeLabel, conforming, total, outlierCount } = deviation
+/**
+ * The norm a deviation is measured against, with no exception clause. The Home
+ * card shows this alone; the page appends the exceptions.
+ */
+export function deviationNorm(deviation: Deviation): string {
+  const { typeLabel, relatedTypeLabel, conforming, total } = deviation
   const counts = `${conforming.toLocaleString()} of ${total.toLocaleString()}`
-  const rest =
-    outlierCount === 1 ? 'the one exception' : `the ${outlierCount.toLocaleString()} exceptions`
   switch (deviation.kind) {
     case 'missing-child':
-      return `${counts} ${typeLabel} instances contain a ${relatedTypeLabel} — ${rest}:`
+      return `${counts} ${typeLabel} instances contain a ${relatedTypeLabel}`
     case 'unusual-parent':
-      return `${counts} ${typeLabel} instances sit under a ${relatedTypeLabel} — ${rest}:`
+      return `${counts} ${typeLabel} instances sit under a ${relatedTypeLabel}`
     case 'naming':
-      return `${counts} ${typeLabel} names follow ${deviation.signature} — ${rest}:`
+      return `${counts} ${typeLabel} names follow ${deviation.signature}`
   }
+}
+
+export function deviationHeadline(deviation: Deviation): string {
+  const { outlierCount } = deviation
+  const rest =
+    outlierCount === 1 ? 'the one exception' : `the ${outlierCount.toLocaleString()} exceptions`
+  return `${deviationNorm(deviation)}, ${rest}:`
 }
 
 export function groupLabel(kind: NormKind, group: OutlierGroup): string {
   const n = group.members.length.toLocaleString()
   const suffix =
     kind === 'unusual-parent' && group.subtreeRootLabel
-      ? ` — all within ${group.subtreeRootLabel}`
+      ? `, all within ${group.subtreeRootLabel}`
       : ''
   switch (kind) {
     case 'unusual-parent':
@@ -998,7 +1195,7 @@ export function getInsightsReport(
   ) {
     return reportCache
   }
-  // One scan feeds both computations — the index build and the depth walk are
+  // One scan feeds both computations, the index build and the depth walk are
   // the costly linear passes, and running them twice per catalog bought nothing.
   const scan = scanCatalog(objects)
   const stats = computeModelStats(objects, objectTypes, namespaceCount, {

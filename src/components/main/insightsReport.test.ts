@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   MIN_NORM_INSTANCES,
+  MIN_NORM_LIFT,
   computeInsightsReport,
   conventionText,
   deviationHeadline,
+  deviationNorm,
   getInsightsReport,
   groupLabel,
   nameSignature,
+  normLift,
   wilsonLower,
 } from './insightsReport'
 import { computeModelStats } from './modelStats'
@@ -71,7 +74,7 @@ describe('nameSignature', () => {
 
   it('treats non-Latin letters and digits like Latin ones', () => {
     // A Cyrillic or CJK word must collapse to a bare (uninformative) 'A' just
-    // like 'Pump' does — otherwise non-Latin catalogs get their literal names
+    // like 'Pump' does, otherwise non-Latin catalogs get their literal names
     // reported as "patterns" and fabricated naming deviations.
     expect(nameSignature('Насос')).toBe('A')
     expect(nameSignature('温度計')).toBe('A')
@@ -134,7 +137,7 @@ describe('type profiles', () => {
     const pump = computeInsightsReport(named, []).profiles.find(p => p.typeId === 'pump')!
     expect(pump.naming).toMatchObject({ signature: 'A-9', share: 1 })
 
-    // Bare single-word names ("A") are uninformative — no naming profile.
+    // Bare single-word names ("A") are uninformative, no naming profile.
     const words = Array.from({ length: 20 }, (_, i) =>
       obj(`w${i}`, { typeId: 'W', displayName: `Word${i}` === '' ? 'x' : 'Word' })
     )
@@ -220,14 +223,14 @@ describe('deviations', () => {
     expect(group.keyLabel).toBe('Bin')
     expect(group.members.map(m => m.elementId).sort()).toEqual(['plc19', 'plc20'])
     expect(group.subtreeRootLabel).toBe('NORTHSITE')
-    expect(groupLabel('unusual-parent', group)).toBe('2 sit under Bin instead — all within NORTHSITE')
+    expect(groupLabel('unusual-parent', group)).toBe('2 sit under Bin instead, all within NORTHSITE')
     // Disambiguation context on members: the actual parent's label.
     expect(group.members[0].context).toBe('bin')
   })
 
   it('ranks by Wilson strength: 990/1000 beats 9/10', () => {
     const big = pumpsWithSensors(1000, Array.from({ length: 10 }, (_, i) => i * 97))
-    // Small type: 9 of 10 valves have an actuator — rename ids to avoid collisions.
+    // Small type: 9 of 10 valves have an actuator, rename ids to avoid collisions.
     const small: ObjectInstance[] = []
     for (let i = 0; i < 10; i++) {
       small.push(obj(`valve${i}`, { typeId: 'valve' }))
@@ -238,7 +241,7 @@ describe('deviations', () => {
     expect(kinds.indexOf('pump')).toBeLessThan(kinds.indexOf('valve'))
   })
 
-  it('never lets self-containment form a containment norm — chain tails are not defects', () => {
+  it('never lets self-containment form a containment norm, chain tails are not defects', () => {
     // 40 chains of depth 3, all one recursive type: every leaf "misses" a
     // child of its own type by structural necessity, not by mistake.
     const objects: ObjectInstance[] = []
@@ -254,7 +257,7 @@ describe('deviations', () => {
     expect(
       report.conventions.filter(c => c.kind === 'missing-child' && c.relatedTypeId === 'loc')
     ).toHaveLength(0)
-    // The atlas still shows the recursive structure — it's real, just not a norm.
+    // The atlas still shows the recursive structure, it's real, just not a norm.
     const profile = report.profiles.find(p => p.typeId === 'loc')!
     expect(profile.children.find(c => c.childTypeId === 'loc')).toBeDefined()
   })
@@ -269,22 +272,107 @@ describe('deviations', () => {
   })
 
   it('flags naming deviants grouped by their own signature', () => {
-    const objects = pumpsWithSensors(20, []).map(o =>
-      o.elementId === 'pump7' ? { ...o, displayName: 'Odd Name' } : o
-    )
+    // The sensors are renamed off "A-9" on purpose: pumpsWithSensors names
+    // both types the same way, and a name shape the rest of the catalog uses
+    // just as much is house style, not a Pump convention (see MIN_NORM_LIFT).
+    const objects = pumpsWithSensors(20, []).map(o => {
+      if (o.elementId === 'pump7') return { ...o, displayName: 'Odd Name' }
+      if (o.typeId === 'sensor') return { ...o, displayName: `Vibration ${o.elementId}` }
+      return o
+    })
     const report = computeInsightsReport(objects, [type('pump', 'Pump')])
     const naming = report.deviations.find(d => d.kind === 'naming' && d.typeId === 'pump')!
     expect(naming.signature).toBe('A-9')
     expect(naming.groups[0].keyLabel).toBe('A A')
     expect(naming.groups[0].members[0].elementId).toBe('pump7')
-    expect(deviationHeadline(naming)).toContain('19 of 20 Pump names follow A-9')
+    expect(deviationNorm(naming)).toBe('19 of 20 Pump names follow A-9')
+    expect(deviationHeadline(naming)).toBe(
+      '19 of 20 Pump names follow A-9, the one exception:'
+    )
+  })
+})
+
+describe('informativeness gate', () => {
+  /** One container type for the entire model: nothing distinguishes any type. */
+  function oneContainerModel(strayPump = false): ObjectInstance[] {
+    const objects: ObjectInstance[] = [obj('loc', { typeId: 'locT' })]
+    if (strayPump) objects.push(obj('other', { typeId: 'otherT' }))
+    for (let i = 0; i < 20; i++) {
+      const parentId = strayPump && i === 19 ? 'other' : 'loc'
+      objects.push(obj(`pump${i}`, { typeId: 'pump', parentId }))
+    }
+    for (let i = 0; i < 200; i++) objects.push(obj(`thing${i}`, { typeId: 'thing', parentId: 'loc' }))
+    return objects
+  }
+
+  it('measures lift against the rest of the catalog, not the whole of it', () => {
+    // 20 of 20 for the type, 220 of 221 catalog-wide: excluding the type's own
+    // instances is what stops a big type from setting its own baseline.
+    const perfect = normLift(20, 20, 220, 221)
+    expect(perfect.baseRate).toBeCloseTo(200 / 201)
+    expect(perfect.lift).toBeLessThan(MIN_NORM_LIFT)
+    expect(perfect.notable).toBe(false)
+  })
+
+  it('treats "nothing else does this" and "nothing to compare with" as maximally informative', () => {
+    expect(normLift(20, 20, 20, 500)).toMatchObject({ lift: Infinity, notable: true })
+    expect(normLift(20, 20, 20, 20)).toMatchObject({ baseRate: null, notable: true })
+  })
+
+  it('keeps a norm the whole model shares, but marks it unremarkable', () => {
+    const report = computeInsightsReport(oneContainerModel(), [
+      type('pump', 'Pump'),
+      type('locT', 'Location'),
+    ])
+    const placement = report.conventions.find(
+      c => c.kind === 'unusual-parent' && c.typeId === 'pump'
+    )!
+    // Still stated (it is true, and the page lists it), just not headline.
+    expect(conventionText(placement)).toBe('Every Pump sits under a Location')
+    expect(placement.notable).toBe(false)
+    expect(placement.lift).toBeLessThan(MIN_NORM_LIFT)
+    expect(report.summary.conventions).toBe(0)
+    expect(report.summary.trivialConventions).toBeGreaterThan(0)
+  })
+
+  it('reports a placement only this type keeps', () => {
+    const objects: ObjectInstance[] = [
+      obj('loc', { typeId: 'locT' }),
+      obj('station', { typeId: 'stationT', parentId: 'loc' }),
+    ]
+    for (let i = 0; i < 20; i++) objects.push(obj(`pump${i}`, { typeId: 'pump', parentId: 'station' }))
+    for (let i = 0; i < 200; i++) objects.push(obj(`thing${i}`, { typeId: 'thing', parentId: 'loc' }))
+
+    const placement = computeInsightsReport(objects, [])
+      .conventions.find(c => c.kind === 'unusual-parent' && c.typeId === 'pump')!
+    expect(placement.notable).toBe(true)
+    expect(placement.lift).toBe(Infinity)
+  })
+
+  it('raises no deviation and no anomaly points from an unremarkable norm', () => {
+    const report = computeInsightsReport(oneContainerModel(true), [])
+    // 19 of 20 pumps under Location, one elsewhere: a 95% norm, but so is the
+    // rest of the catalog, so the odd pump is not evidence of anything.
+    const convention = report.conventions.find(
+      c => c.kind === 'unusual-parent' && c.typeId === 'pump'
+    )!
+    expect(convention.coverage).toBeCloseTo(0.95)
+    expect(convention.notable).toBe(false)
+    expect(report.deviations.filter(d => d.typeId === 'pump')).toHaveLength(0)
+    expect(report.anomalies).toHaveLength(0)
+  })
+
+  it('sorts notable conventions ahead of the rest', () => {
+    const report = computeInsightsReport(oneContainerModel(), [])
+    const flags = report.conventions.map(c => c.notable)
+    expect(flags).toEqual([...flags].sort((a, b) => Number(b) - Number(a)))
   })
 })
 
 describe('splits', () => {
   it('classifies a 94%-with-concentrated-6% norm as a split, not a deviation', () => {
-    // 940 under an area, 60 under a zone (a different parent TYPE — placement
-    // norms are typed) — the location-hierarchy case from a real catalog.
+    // 940 under an area, 60 under a zone (a different parent TYPE, placement
+    // norms are typed), the location-hierarchy case from a real catalog.
     const objects: ObjectInstance[] = [
       obj('areaA', { typeId: 'areaT' }),
       obj('areaB', { typeId: 'zoneT' }),
@@ -356,6 +444,9 @@ describe('anomalies', () => {
     expect(anomaly.score).toBe(2)
     expect(anomaly.reasons.join(' ')).toContain('missing Sensor')
     expect(anomaly.reasons.join(' ')).toContain('sits under Bin')
+    // Where it sits, so two same-named objects of one type can't render as
+    // identical rows (the failure this list was built to fix).
+    expect(anomaly.context).toBe('bin')
   })
 
   it('excludes single-norm violators', () => {
@@ -389,6 +480,18 @@ describe('data quality', () => {
     expect(cleanReport.dataQuality.untyped).toHaveLength(stats.untyped)
     expect(cleanReport.dataQuality.unusedTypes).toHaveLength(stats.unusedTypes)
   })
+
+  it('keeps unused types out of the issue count and reports them separately', () => {
+    // A namespace is a type library: declaring types this server doesn't
+    // instantiate is normal, so it must not inflate the issue headline.
+    const objects = [obj('a'), obj('orphan1', { parentId: 'nowhere' })]
+    const types = [type('T'), type('U1'), type('U2'), type('U3')]
+    const report = computeInsightsReport(objects, types)
+
+    expect(report.dataQuality.unusedTypes).toHaveLength(3)
+    expect(report.summary.unusedTypes).toBe(3)
+    expect(report.summary.dataQualityIssues).toBe(1) // the orphan, nothing else
+  })
 })
 
 describe('robustness', () => {
@@ -397,9 +500,12 @@ describe('robustness', () => {
     expect(report.summary).toEqual({
       typesAnalyzed: 0,
       conventions: 0,
+      trivialConventions: 0,
+      conventionsWithExceptions: 0,
       deviations: 0,
       splits: 0,
       dataQualityIssues: 0,
+      unusedTypes: 0,
     })
   })
 
@@ -415,10 +521,18 @@ describe('robustness', () => {
 
   it('summary counts match section lengths', () => {
     const report = computeInsightsReport(pumpsWithSensors(24, [3, 9]), [type('Unused')])
-    expect(report.summary.conventions).toBe(report.conventions.length)
+    // The headline convention count is the notable ones only; the rest are
+    // still in the array, and the two add up to it.
+    expect(report.summary.conventions).toBe(report.conventions.filter(c => c.notable).length)
+    expect(report.summary.conventions + report.summary.trivialConventions).toBe(
+      report.conventions.length
+    )
     expect(report.summary.deviations).toBe(report.deviations.length)
     expect(report.summary.splits).toBe(report.splits.length)
     expect(report.summary.typesAnalyzed).toBe(report.profiles.length)
+    // Every deviation is the exception list of exactly one notable convention,
+    // so the tiles' overlap is a number the page can state rather than hide.
+    expect(report.summary.conventionsWithExceptions).toBe(report.summary.deviations)
   })
 })
 

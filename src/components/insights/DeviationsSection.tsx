@@ -15,9 +15,9 @@ import {
 
 /**
  * The norm-breakers, explained. The card's original sin was a bare outlier
- * list ("19 sit elsewhere" — where?); here every finding's exceptions are
+ * list ("19 sit elsewhere", where?); here every finding's exceptions are
  * grouped by where they actually sit, with the subtree called out when the
- * whole group shares one — "19 sit under Mfg Line instead — all within
+ * whole group shares one, "19 sit under Mfg Line instead, all within
  * NORTHSITE". No "+N more" dead ends: every member of every group is browsable
  * (windowed past a screenful) and clickable.
  */
@@ -45,11 +45,10 @@ export function DeviationsSection({ deviations }: { deviations: Deviation[] }) {
       title={`Deviations · ${deviations.length.toLocaleString()}`}
       actions={
         <InfoHint label="How are deviations ranked?" title="Deviations">
-          Exceptions to strong norms, strongest norm first — ranked by a Wilson lower bound on the
-          conformance proportion, so 990 of 1,000 outranks 9 of 10 even though both are "90%+".
-          The stronger the consensus, the more likely each exception is a genuine defect: usually
-          one of mis-modeled, missing instrumentation, or the one special case worth knowing
-          about. Exceptions are grouped by where they actually sit.
+          The exceptions to each convention, strongest convention first. 990 of 1,000 ranks above 9
+          of 10: the bigger the agreement, the more likely each exception is a real mistake rather
+          than a small sample. Exceptions are grouped by where they actually sit, so you can tell
+          one stray object from a whole subtree that was built differently.
         </InfoHint>
       }
     >

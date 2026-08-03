@@ -3,7 +3,7 @@ import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 /**
  * The snapshot file format: a versioned JSON envelope around the three catalog
  * collections the explorer already holds in memory (namespaces, object types,
- * objects). Capture is a pure read of the stores — zero network requests — so a
+ * objects). Capture is a pure read of the stores, zero network requests, so a
  * snapshot is exactly "what the app knew at that moment", nothing fresher.
  *
  * Objects are stored in the client's normalized `ObjectInstance` shape (v0/v1
@@ -12,7 +12,7 @@ import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
  * apiVersion field is provenance, not a compatibility gate.
  *
  * Files are gzip by default (`.i3xsnap.gz`): a 100k-object catalog is tens of
- * MB as JSON and ~10× smaller compressed. Plain `.json` is accepted on load —
+ * MB as JSON and ~10× smaller compressed. Plain `.json` is accepted on load,
  * the sniff is the gzip magic bytes, not the file name.
  */
 
@@ -31,7 +31,7 @@ export interface Snapshot {
   formatVersion: number
   /** App version that wrote the file. Provenance only. */
   appVersion: string
-  /** Server the catalog was fetched from. Provenance only — diffs across servers are legal. */
+  /** Server the catalog was fetched from. Provenance only, diffs across servers are legal. */
   serverUrl: string
   /** Detected wire version at capture ('v0' | 'v1-beta' | 'v1'), null if unknown. */
   apiVersion: string | null
@@ -92,7 +92,7 @@ export function serializeSnapshot(snapshot: Snapshot): string {
  *
  * Structural problems (not JSON, no envelope, a formatVersion this build
  * doesn't understand, missing collections) throw SnapshotFormatError with a
- * message meant for the user. Unknown extra fields are tolerated — a newer app
+ * message meant for the user. Unknown extra fields are tolerated, a newer app
  * may add fields without bumping the format. Entries that aren't usable
  * objects (no string elementId) are dropped and counted in `warnings` rather
  * than failing the whole file.
@@ -174,7 +174,7 @@ export function isGzipData(bytes: Uint8Array): boolean {
 }
 
 /**
- * Compress snapshot JSON with the native CompressionStream — no dependency,
+ * Compress snapshot JSON with the native CompressionStream, no dependency,
  * identical in Electron and the web build.
  */
 export async function compressSnapshotText(json: string): Promise<Blob> {
@@ -198,7 +198,7 @@ export function suggestSnapshotFilename(serverUrl: string, capturedAt: string): 
   try {
     host = new URL(serverUrl).hostname || host
   } catch {
-    // Not a URL (or empty) — keep the generic stem.
+    // Not a URL (or empty), keep the generic stem.
   }
   const stamp = capturedAt.replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   return `i3x-${host}-${stamp}${SNAPSHOT_EXTENSION}`

@@ -71,7 +71,7 @@ export function TreeRowIcon({ row }: { row: NodeRow }) {
  * Faint vertical guides marking each depth level, VS Code style. Absolutely
  * positioned over the row's left padding so they run edge-to-edge through the
  * row (including its vertical padding) and connect visually across rows. The
- * `active` column — the subtree of the current selection — is accented.
+ * `active` column, the subtree of the current selection, is accented.
  */
 export function IndentGuides({ depth, active }: { depth: number; active?: number | null }) {
   if (depth <= 0) return null
@@ -218,7 +218,7 @@ export function TreeMoreNode({
       <IndentGuides depth={row.depth} active={activeGuide} />
       <span className="w-4 flex-shrink-0" />
       {/* The tree body clips horizontally (labels truncate), so the two
-          buttons must never shrink out of reach — only the "N hidden" count
+          buttons must never shrink out of reach, only the "N hidden" count
           gives way on a narrow sidebar. */}
       <button
         type="button"

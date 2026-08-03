@@ -3,13 +3,13 @@ import { useExplorerStore } from './explorer'
 import { useDiffStore } from './diff'
 
 /**
- * Open/closed state for the Model Insights page — nothing else. The report
+ * Open/closed state for the Model Insights page, nothing else. The report
  * itself lives in the `getInsightsReport` module memo (keyed on the explorer
  * store's array identities), so closing the view frees no data and reopening
  * is instant; there is deliberately no content in this store.
  *
  * Same lifecycle as the diff view (stores/diff.ts): any navigation leaves the
- * page, and the two full-panel views are mutually exclusive — whichever
+ * page, and the two full-panel views are mutually exclusive, whichever
  * opened last wins. The import is one-way (insights → diff), so there is no
  * module cycle.
  */

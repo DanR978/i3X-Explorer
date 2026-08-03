@@ -26,7 +26,7 @@ export class SSESubscription {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   // Set by disconnect(). A pending reconnect timer survives abort() (its callback
   // builds a fresh AbortController), so without this flag a deleted subscription's
-  // timer would fire, 404, and trigger recovery — resurrecting the subscription.
+  // timer would fire, 404, and trigger recovery, resurrecting the subscription.
   private disposed = false
   private url: string
   private credentials: ClientCredentials | null

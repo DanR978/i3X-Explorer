@@ -15,7 +15,7 @@ function obj(elementId: string): ObjectInstance {
 }
 
 // root with an upstream parent P, two children C1/C2, and a grandchild G1
-// under C1 — the canonical parent → self → children → grandchildren picture.
+// under C1, the canonical parent → self → children → grandchildren picture.
 function fixtureGraph(): EgoGraph {
   return {
     nodes: [
@@ -57,7 +57,7 @@ describe('layoutTree', () => {
   it('centres a node on its downstream children only', () => {
     const layout = layoutTree(fixtureGraph())
     const byId = new Map(layout.nodes.map(n => [n.object.elementId, n]))
-    // root sits midway between C1 and C2 — the upstream P is ignored so the
+    // root sits midway between C1 and C2, the upstream P is ignored so the
     // root lines up with its own children, not with its parent's row.
     const c1 = byId.get('C1')!
     const c2 = byId.get('C2')!

@@ -27,12 +27,12 @@ export function ModelOverview({
   objects: ObjectInstance[]
   objectTypes: ObjectType[]
   namespaceCount: number
-  /** True while the catalog fetch is in flight — shows the skeleton instead of "No model loaded". */
+  /** True while the catalog fetch is in flight, shows the skeleton instead of "No model loaded". */
   isLoading?: boolean
 }) {
   const { selectElement, selectType } = useElementNavigation()
 
-  // One shared computation for the stat row AND the insights card/page —
+  // One shared computation for the stat row AND the insights card/page,
   // getInsightsReport memoizes on the store array identities, so the Insights
   // page rendering after this is a cache hit, not a second pass.
   const { stats, report } = getInsightsReport(objects, objectTypes, namespaceCount)
@@ -65,7 +65,7 @@ export function ModelOverview({
           actions={
             <InfoHint label="What is this?" title="Largest containers">
               The objects holding the most direct children. On a big model this is where the
-              structure lives, start here rather than scrolling the tree. Click one to open it.
+              structure lives, so start here rather than scrolling the tree. Click one to open it.
             </InfoHint>
           }
         >
@@ -83,13 +83,12 @@ export function ModelOverview({
           }`}
           actions={
             <InfoHint label="What is this?" title="Entry points">
-              Objects you can't navigate up from: either they name no parent, or their parent isn't
-              in this catalog. They're the tops of the hierarchy, and the natural places to start
-              browsing.
+              Objects you can't go up from: they either name no parent, or name one this catalog
+              doesn't contain. They are the tops of the hierarchy and the natural places to start.
               <br />
               <br />
-              A model with thousands of roots is flat rather than hierarchical, which is worth
-              knowing before you go looking for a tree that isn't there.
+              A model with thousands of roots is flat, not hierarchical, which is worth knowing
+              before you go looking for a tree that isn't there.
             </InfoHint>
           }
         >
@@ -116,9 +115,8 @@ export function ModelOverview({
           title="Hierarchy shape"
           actions={
             <InfoHint label="How is depth counted?" title="Hierarchy shape">
-              Levels are counted down the compositional{' '}
-              <span className="font-mono">parentId</span> chain: a root is level 0, its children
-              level 1, and so on. Fan-out is how many direct children an object holds.
+              A root is level 0, its children level 1, and so on down the parent chain. Fan-out is
+              how many direct children an object holds.
             </InfoHint>
           }
         >
@@ -148,7 +146,7 @@ export function ModelOverview({
 /**
  * Shown while the catalog is still arriving. Mirrors the real layout (stat
  * row, then two card columns) so the page doesn't jump when the data lands.
- * Stays up until the model actually lands — isLoading covers the whole
+ * Stays up until the model actually lands, isLoading covers the whole
  * object-list prefetch (see services/connection.ts), so there is no blank
  * frame between the skeleton and the populated overview.
  */
@@ -200,16 +198,14 @@ function StatRow({ stats }: { stats: ModelStats }) {
         value={stats.links}
         hint={
           <InfoHint label="What counts as a link?" title="Containment links">
-            Every object that names a parent in this catalog. These are compositional{' '}
-            <span className="font-mono">parentId</span> links, the only relationships the client
-            can know without asking the server about each object one at a time.
+            Every object that names a parent this catalog contains. These parent/child links are
+            the only relationships the app knows without asking the server about each object
+            separately.
             <br />
             <br />
-            Other relationship kinds (<span className="font-mono">Monitors</span>,{' '}
-            <span className="font-mono">InheritsFrom</span>, …) live behind{' '}
-            <span className="font-mono">POST /objects/related</span>, which is per-object. They are
-            shown in full on an element's <b className="text-i3x-text">Relationships</b> tab, and
-            are not counted here.
+            Other kinds of relationship have to be fetched one object at a time. They are shown in
+            full on an element's <b className="text-i3x-text">Relationships</b> tab and are not
+            counted here.
           </InfoHint>
         }
       />
@@ -269,13 +265,8 @@ function Issues({ stats }: { stats: ModelStats }) {
       }`,
       hint: (
         <InfoHint label="What is an orphan?" title="Orphaned objects" align="left">
-          Their <span className="font-mono">parentId</span> names an object this catalog doesn't
-          contain. Usually it means the catalog is only partly loaded, or the server reports parents
-          it won't list.
-          <br />
-          <br />
-          Nothing can be known about where they sit, so they're counted as roots, you can't
-          navigate up from one, and they appear under{' '}
+          They name a parent this catalog doesn't contain, usually because only part of the model
+          is loaded. Since you can't go up from one, they are counted as roots and listed under{' '}
           <b className="text-i3x-text">Entry points</b>.
         </InfoHint>
       ),
@@ -289,26 +280,18 @@ function Issues({ stats }: { stats: ModelStats }) {
       }`,
       hint: (
         <InfoHint label="What does untyped mean?" title="Untyped objects" align="left">
-          These objects carry no <span className="font-mono">typeId</span>, so nothing describes
-          their shape, no schema, and no way to group them with anything else.
+          They carry no <span className="font-mono">typeId</span>, so nothing describes their
+          shape and there is nothing to group them with.
         </InfoHint>
       ),
     })
   }
 
-  if (stats.unusedTypes > 0) {
-    found.push({
-      text: `${stats.unusedTypes.toLocaleString()} declared ${
-        stats.unusedTypes === 1 ? 'type has' : 'types have'
-      } no instances`,
-      hint: (
-        <InfoHint label="Why does this matter?" title="Types with no instances" align="left">
-          The server declares these object types but no object in the catalog uses them. Harmless in
-          itself, but on a partial load it's a hint that objects you expected are missing.
-        </InfoHint>
-      ),
-    })
-  }
+  // Declared types with no instances are NOT listed here. In I3X a namespace
+  // is a type library, so publishing a profile this server doesn't fully
+  // instantiate is normal, and it was routinely the largest number in a strip
+  // whose whole point is "something is wrong". The full list is still
+  // browsable on the Model Insights page, filed as information, not an issue.
 
   if (found.length === 0) return null
 

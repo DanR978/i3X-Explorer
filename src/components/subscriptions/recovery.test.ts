@@ -132,7 +132,7 @@ describe('performRecovery', () => {
     expect(harness.lastSuccessAt).toBe(100_000)
 
     // Second incident 10s later (server expiring subs as fast as we recreate
-    // them): success must NOT refund — the cap stays reachable.
+    // them): success must NOT refund, the cap stays reachable.
     t = 110_000
     await expect(performRecovery('new-1', deps)).resolves.toBe(true)
     expect(harness.attempts).toBe(1)

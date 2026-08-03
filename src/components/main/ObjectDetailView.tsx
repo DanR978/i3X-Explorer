@@ -122,7 +122,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
       // Register this object. If this throws, the catch block cleans up
       await client.registerMonitoredItems(subscriptionId, [object.elementId])
       useSubscriptionsStore.getState().addMonitoredItem(subscriptionId, object.elementId)
-      // Start the transport unless it's already live — without this the drawer
+      // Start the transport unless it's already live, without this the drawer
       // opens on "Waiting…" until Start Stream is clicked manually. Guarded
       // because startStream is not idempotent (it tears down and reopens the
       // transport); a live stream carries newly registered items as-is.
@@ -138,7 +138,7 @@ export function ObjectDetailView({ object }: { object: ObjectInstance }) {
       console.error('Failed to subscribe:', err)
 
       // Roll back any subscription we just created so it doesn't sit empty in
-      // the UI. This assumes the failure came from create/register — if
+      // the UI. This assumes the failure came from create/register, if
       // startStream ever becomes throwing, revisit so a healthy subscription
       // isn't deleted over a transport hiccup.
       if (newlyCreatedSubId) {

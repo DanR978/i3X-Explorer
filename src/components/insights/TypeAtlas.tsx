@@ -10,7 +10,7 @@ import type { ChildStat, TypeProfile } from '../main/insightsReport'
 /**
  * The inferred schema, browsable: one row per type, expanding into where its
  * instances sit, what they contain (with cardinality), how deep they run, and
- * how they're named. Deliberately a windowed list, not a node-link graph — at
+ * how they're named. Deliberately a windowed list, not a node-link graph, at
  * catalog scale a whole-model graph is a hairball (see CLAUDE.md), while a
  * table answers "where does this kind of data live" in one glance.
  */
@@ -19,7 +19,7 @@ import type { ChildStat, TypeProfile } from '../main/insightsReport'
 const MAX_CHILD_LINES = 6
 /** Expanded placement rows past this fold into one aggregate "(scattered)" line. */
 const MAX_PLACEMENT_ROWS = 12
-/** Opacity ramp for the stacked placement mini-bar — rank, not value, so one hue. */
+/** Opacity ramp for the stacked placement mini-bar, rank, not value, so one hue. */
 const SEGMENT_OPACITY = [0.9, 0.55, 0.32, 0.18]
 
 export function formatShare(share: number): string {
@@ -52,11 +52,9 @@ export function TypeAtlas({ profiles }: { profiles: TypeProfile[] }) {
       title={`Type atlas · ${profiles.length.toLocaleString()} ${profiles.length === 1 ? 'type' : 'types'}`}
       actions={
         <InfoHint label="What is the type atlas?" title="Type atlas">
-          The schema the instances imply: for every type in use, where its instances actually sit,
-          what they contain (and how many), how deep they run, and how they're named — computed
-          from compositional <span className="font-mono">parentId</span> links and display names,
-          the only facts knowable without asking the server about each object. Click a type name to
-          open it; click an example to jump to that object.
+          For every type in use: where its instances sit, what they contain and how many, how deep
+          they run, and how they are named. Click a type name to open it, or an example to jump to
+          that object.
         </InfoHint>
       }
     >
@@ -197,7 +195,7 @@ function AtlasRow({
             </ul>
             {foldedPlacements > 0 && (
               // Not a dead end: a type scattered across dozens of parent types
-              // IS the finding — the aggregate is the honest statement of it.
+              // IS the finding, the aggregate is the honest statement of it.
               <p className="mt-1 text-[11px] text-i3x-text-muted">
                 …scattered across {foldedPlacements.toLocaleString()} more parent types (
                 {foldedCount.toLocaleString()} objects)

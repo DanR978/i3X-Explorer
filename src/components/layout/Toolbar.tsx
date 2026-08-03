@@ -101,7 +101,7 @@ export function Toolbar() {
 
   // Clearing the selection is what "Home" means, the main panel renders its
   // Home shell whenever nothing is selected. Home also leaves the diff and
-  // insights views — their stores only auto-close on selection *changes*, and
+  // insights views, their stores only auto-close on selection *changes*, and
   // Home-while-on-Home isn't one (the insights page is even opened FROM Home,
   // so its selection is always null while it's up).
   const showHome = () => {
@@ -281,7 +281,7 @@ export function Toolbar() {
             className="relative w-7 h-7 flex items-center justify-center rounded text-i3x-text-muted hover:text-i3x-text hover:bg-i3x-bg transition-colors motion-reduce:transition-none"
           >
             <CameraIcon size={16} />
-            {/* A baseline is loaded and diffable — worth a quiet marker. */}
+            {/* A baseline is loaded and diffable, worth a quiet marker. */}
             {hasBaseline && (
               <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-i3x-primary" />
             )}
@@ -293,7 +293,7 @@ export function Toolbar() {
                 <button
                   onClick={() => { void captureAndSave(); setShowSnapshotMenu(false) }}
                   disabled={!isConnected || objectCount === 0 || snapshotBusy === 'saving'}
-                  title="Writes the already-fetched catalog to a file — no new requests. Refresh first if you want it fresher."
+                  title="Writes the already-fetched catalog to a file, no new requests. Refresh first if you want it fresher."
                   className="w-full text-left px-3 py-2 text-xs text-i3x-text hover:bg-i3x-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {snapshotBusy === 'saving'

@@ -7,9 +7,9 @@ import {
 /**
  * Depth picker shared by the Relationships and Subtree tabs: a pill per hop from
  * MIN up to however many have been revealed, then a "+" that reveals one more.
- * The revealed count is session state in the store — shared by both pickers,
+ * The revealed count is session state in the store, shared by both pickers,
  * since revealing a deeper pill means "I go deep on this model", not "on this
- * tab" — so the extra pills stay put when you switch elements or tabs.
+ * tab", so the extra pills stay put when you switch elements or tabs.
  */
 export function DepthControl({
   value,

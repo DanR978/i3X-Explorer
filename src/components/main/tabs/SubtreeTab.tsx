@@ -2,6 +2,7 @@ import type { ObjectInstance } from '../../../api/types'
 import { useExplorerStore } from '../../../stores/explorer'
 import { RelationshipLegend } from '../../graph/RelationshipLegend'
 import { TreeGraph } from '../../graph/TreeGraph'
+import { useEgoGraph } from '../../graph/useEgoGraph'
 import { Card } from '../primitives'
 import { useElementNavigation } from '../navigation'
 import { DepthControl } from './DepthControl'
@@ -14,7 +15,7 @@ import { DepthControl } from './DepthControl'
  * with the direct-relationship list and fans out from the root to the parent
  * and non-hierarchy links too. On a deeply nested model the question is usually
  * just "what's under this?", so this tab gives that one walk the whole panel:
- * descendants only (`descendantsOnly` on the walk — no parent leaf, no side
+ * descendants only (`descendantsOnly` on the walk, no parent leaf, no side
  * links), a deeper default depth, and its own depth state (`subtreeDepth`) so
  * drilling deep here doesn't drag the Relationships map along with it.
  */
@@ -22,6 +23,9 @@ export function SubtreeTab({ object }: { object: ObjectInstance }) {
   const depth = useExplorerStore(state => state.subtreeDepth)
   const setDepth = useExplorerStore(state => state.setSubtreeDepth)
   const { selectElement } = useElementNavigation()
+
+  // Same shared walk as the Relationships tab, told to descend from the first hop.
+  const { graph, isLoading, error } = useEgoGraph(object, depth, true)
 
   return (
     <Card
@@ -38,7 +42,15 @@ export function SubtreeTab({ object }: { object: ObjectInstance }) {
         {/* No list beside it and no drag source in this tab, so onFocusElement is
             omitted: navigation (click) is the only way onward, which is right for
             a tab whose root is always the selected element. */}
-        <TreeGraph root={object} depth={depth} descendantsOnly onSelectElement={selectElement} />
+        <TreeGraph
+          root={object}
+          graph={graph}
+          isLoading={isLoading}
+          error={error}
+          depth={depth}
+          descendantsOnly
+          onSelectElement={selectElement}
+        />
       </div>
 
       <p className="mt-3 shrink-0 text-[11.5px] text-i3x-text-muted">

@@ -307,25 +307,41 @@ function folderEntries(row: NodeRow): MenuEntry[] {
 
 /**
  * Build the context menu for one tree row. Entries are computed at open time
- * (counts, expansion state) but heavy work — building subtree JSON — happens
+ * (counts, expansion state) but heavy work, building subtree JSON, happens
  * only when an action is actually clicked. Returns null for rows with no menu.
+ *
+ * `promptForChildCount` is supplied by TreeView: the "how many?" flow needs a
+ * dialog (Electron's renderer has no window.prompt), and dialogs are rendered
+ * by the view, not built here.
  */
 export function buildTreeMenu(
   row: TreeRow,
-  revealInHierarchy: (elementId: string) => void
+  revealInHierarchy: (elementId: string) => void,
+  promptForChildCount: (parentId: string, hidden: number) => void
 ): MenuEntry[] | null {
   if (row.kind === 'marker') return null
   if (row.kind === 'more') {
+    const step = Math.min(row.hidden, CHILD_PAGE_SIZE)
     return [
       {
+        kind: 'header',
+        label: `${row.hidden.toLocaleString()} more ${row.hidden === 1 ? 'child' : 'children'} hidden`,
+      },
+      {
         kind: 'action',
-        label: `Show ${Math.min(row.hidden, CHILD_PAGE_SIZE).toLocaleString()} more`,
+        label: `Show ${step.toLocaleString()} more`,
         icon: <EllipsisIcon size={ICON} />,
         onSelect: () => useExplorerStore.getState().raiseChildLimit(row.parentId, CHILD_PAGE_SIZE),
       },
       {
         kind: 'action',
-        label: 'Show all',
+        label: 'Show a specific number…',
+        icon: <EllipsisIcon size={ICON} />,
+        onSelect: () => promptForChildCount(row.parentId, row.hidden),
+      },
+      {
+        kind: 'action',
+        label: 'Show all children',
         detail: `${row.hidden.toLocaleString()} hidden`,
         icon: <ExpandAllIcon size={ICON} />,
         onSelect: () => useExplorerStore.getState().showAllChildren(row.parentId),

@@ -25,12 +25,15 @@ const MAX_HISTORY = 50
 // A parent with more children than this shows the first page plus a
 // "Show more" row instead of dumping everything at once. Virtualization keeps
 // rendering cheap regardless, this cap is about the *user*: 20k siblings under
-// one node bury its siblings and make scrolling past it a chore. The flat
-// Objects folder is exempt (browsing everything is its whole point).
-export const CHILD_PAGE_SIZE = 200
-// Don't bother truncating for a trivial overflow, a "Show 12 more" row costs
-// more attention than the 12 rows it hides.
-export const CHILD_PAGE_SLACK = 50
+// one node bury its siblings and make scrolling past it a chore. One screenful
+// at a time is the point, so the page is small; the "Show more" row reveals
+// another page, its right-click menu takes a custom number or reveals
+// everything. The flat Objects folder is exempt (browsing everything is its
+// whole point).
+export const CHILD_PAGE_SIZE = 50
+// Don't bother truncating for a trivial overflow, a "Show 6 more" row costs
+// more attention than the 6 rows it hides.
+export const CHILD_PAGE_SLACK = 10
 
 // Hops the Relationships map walks out from the selected element. The default is
 // one hop (just the direct relationships); deeper walks are opt-in. The ceiling
@@ -131,7 +134,7 @@ interface ExplorerState {
   pendingDetailTab: string | null
   selectedItem: SelectedItem | null
   // Visited selections, oldest first; null is the Home/overview screen, which is
-  // a real navigation stop — Back must land on it, not skip over it. The stack
+  // a real navigation stop, Back must land on it, not skip over it. The stack
   // starts seeded with Home, and historyIndex is the cursor into it.
   history: (SelectedItem | null)[]
   historyIndex: number
@@ -214,7 +217,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   // and would store a brand-new array every tick even when nothing changed.
   // Downstream memos key on array identity (getInsightsReport recomputes a
   // ~130ms report at 100k objects on any miss), so when the content is
-  // byte-identical we keep the old reference and skip the write entirely —
+  // byte-identical we keep the old reference and skip the write entirely,
   // no re-render, no recompute. Both lists are small (namespaces a handful,
   // types at most hundreds), so the stringify costs microseconds-to-low-ms
   // once per poll tick, three orders of magnitude under what it saves.

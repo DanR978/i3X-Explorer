@@ -35,7 +35,7 @@ export function ContextMenu({
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  // Rendered hidden for one frame, measured, then clamped into the viewport —
+  // Rendered hidden for one frame, measured, then clamped into the viewport,
   // so the menu never flickers at an overflowing position.
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const [activeIdx, setActiveIdx] = useState(-1)

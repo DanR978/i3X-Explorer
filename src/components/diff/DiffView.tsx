@@ -18,12 +18,12 @@ import type { ObjectInstance } from '../../api/types'
 /**
  * The diff between a loaded baseline snapshot and the current catalog (live,
  * or a second snapshot). A main-panel state alongside Home and element detail:
- * any navigation — a diff row, the tree, search, Back — leaves this view (the
+ * any navigation, a diff row, the tree, search, Back, leaves this view (the
  * store closes it on selection change), and the toolbar reopens it instantly
  * because the baseline and result stay loaded.
  *
  * Rows resolve display data through the live objectIndex / the baseline's own
- * map at render time — the diff result itself holds only elementIds and field
+ * map at render time, the diff result itself holds only elementIds and field
  * deltas. Every category list is virtualized: a catalog diff can legitimately
  * hold 50k added rows, and windowing is the same answer here as in the tree.
  */
@@ -103,14 +103,14 @@ export function DiffView() {
           <h1 className="text-base font-semibold text-i3x-text flex items-center gap-2">
             Snapshot diff
             <InfoHint label="How this diff works" title="How this diff works">
-              Identity is the <span className="font-mono">elementId</span>: present in both catalogs
-              means the same object (its fields are compared), only in the baseline means removed,
-              only in the current catalog means added. Category counts are independent — one object
-              that was re-parented <i>and</i> re-typed appears in both lists.
+              Objects are matched by <span className="font-mono">elementId</span>. In both catalogs
+              means the same object, so its fields get compared. Only in the baseline means removed,
+              only in the current one means added. The categories are counted separately, so one
+              object that moved <i>and</i> changed type shows up in both lists.
               <br />
               <br />
-              A loaded baseline is a second full catalog held in memory, roughly doubling the app's
-              footprint while it's loaded. Clear it from the Snapshot menu to release it.
+              A loaded baseline is a second full catalog held in memory. Clear it from the Snapshot
+              menu when you are done with it.
             </InfoHint>
           </h1>
           <p className="text-xs text-i3x-text-muted mt-1">
@@ -129,13 +129,12 @@ export function DiffView() {
             onChange={value => setDeepCompare(value === 'deep')}
           />
           <InfoHint label="What does metadata compare cost?" title="Fields + metadata">
-            Fields compares parent, type, name and namespace — linear in catalog size (~50ms at
-            100k objects). Adding metadata also compares each object's{' '}
+            Fields compares parent, type, name and namespace, which takes about 50ms over 100,000
+            objects. Adding metadata also compares each object's{' '}
             <span className="font-mono">metadata</span> and{' '}
-            <span className="font-mono">schemaExtensions</span> payloads, whose cost scales with
-            payload size rather than object count (~200ms at 100k with small payloads). It stays
-            opt-in for that reason. Objects listed under <b className="text-i3x-text">Metadata</b>{' '}
-            changed <i>only</i> in metadata.
+            <span className="font-mono">schemaExtensions</span>, which took about 200ms in the same
+            test and grows with how big those payloads are. That is why it is optional. Objects
+            under <b className="text-i3x-text">Metadata</b> changed <i>only</i> there.
           </InfoHint>
           <button
             onClick={runDiff}
@@ -208,7 +207,7 @@ export function DiffView() {
                   {diff.currentCount.toLocaleString()} objects, plus types and namespaces, compared{' '}
                   {diff.deepCompared
                     ? 'including metadata payloads.'
-                    : 'by parent, type, name and namespace. Metadata was not compared — switch to "Fields + metadata" to include it.'}
+                    : 'by parent, type, name and namespace. Metadata was not compared, switch to "Fields + metadata" to include it.'}
                 </p>
               </div>
             </CenterNote>
@@ -263,7 +262,7 @@ function ProvenanceBanner({
 
   const notes: string[] = [...warnings]
   if (crossServer) {
-    notes.push('The two sides come from different servers — this is an environment comparison.')
+    notes.push('The two sides come from different servers, this is an environment comparison.')
   }
   if (crossApi) {
     notes.push(
@@ -368,7 +367,7 @@ function DiffBody({
 }) {
   const [chosen, setChosen] = useState<CategoryKey | null>(null)
 
-  // Hide the metadata pill entirely when metadata wasn't compared — a zero
+  // Hide the metadata pill entirely when metadata wasn't compared, a zero
   // there would be a claim the diff never checked.
   const visibleCategories = CATEGORIES.filter(c => c.key !== 'metadataOnly' || diff.deepCompared)
   const firstNonEmpty = visibleCategories.find(c => categoryCount(diff, c.key) > 0)?.key ?? 'added'
@@ -570,10 +569,9 @@ function SubtreesCard({ subtrees }: { subtrees: ChangedSubtree[] }) {
       title="Most-changed subtrees"
       actions={
         <InfoHint label="How are changes grouped?" title="Most-changed subtrees">
-          Every added, removed or changed object is attributed to its root-level ancestor — added
-          and changed objects walk the current catalog's <span className="font-mono">parentId</span>{' '}
-          chain, removed objects the baseline's (their parents may be gone too). Click a root to
-          open it; roots that no longer exist aren't navigable.
+          Every added, removed or changed object counts against the top-level object it sits under.
+          Removed objects are placed using the baseline, since their parents may be gone too. Click
+          a root to open it. Roots that no longer exist can't be opened.
         </InfoHint>
       }
     >
@@ -615,7 +613,7 @@ function SubtreesCard({ subtrees }: { subtrees: ChangedSubtree[] }) {
   )
 }
 
-/** Type and namespace membership changes — usually short, never virtualized. */
+/** Type and namespace membership changes, usually short, never virtualized. */
 function TypesNamespacesCard({ diff, baseline }: { diff: CatalogDiff; baseline: Snapshot }) {
   const typeIndex = useExplorerStore(s => s.typeIndex)
   const baselineTypeLabels = useMemo(

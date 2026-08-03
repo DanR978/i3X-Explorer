@@ -1,3 +1,4 @@
+import { useEffect, useState, type ReactNode } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
 import { useInsightsStore } from '../../stores/insights'
 import { getInsightsReport, type InsightsSummary } from '../main/insightsReport'
@@ -13,7 +14,7 @@ import { AnomaliesSection } from './AnomaliesSection'
 /**
  * The Model Insights page: a main-panel state alongside Home, element detail
  * and the diff view. Organized around the questions an engineer brings to a
- * single source of truth — where does this kind of data live (type atlas),
+ * single source of truth: where does this kind of data live (type atlas),
  * what does the model promise (conventions), what breaks the promises
  * (deviations, explained), where is the model genuinely two things (splits),
  * and what can't be trusted (data quality).
@@ -32,6 +33,9 @@ const SECTION_IDS = {
   quality: 'insights-quality',
 } as const
 
+/** How long the target section keeps its highlight after a tile is used. */
+const FLASH_MS = 1400
+
 export function InsightsView() {
   const closeView = useInsightsStore(s => s.closeView)
   const allObjects = useExplorerStore(s => s.allObjects)
@@ -40,6 +44,26 @@ export function InsightsView() {
 
   const { report } = getInsightsReport(allObjects, objectTypes, namespaceCount)
 
+  // A fresh object per click, so clicking the same tile twice re-triggers.
+  const [flash, setFlash] = useState<{ id: string } | null>(null)
+  useEffect(() => {
+    if (!flash) return
+    const timer = window.setTimeout(() => setFlash(null), FLASH_MS)
+    return () => window.clearTimeout(timer)
+  }, [flash])
+
+  // The tiles used to only scroll, which on a short page did nothing visible.
+  // Now they also hand the section keyboard focus (so the next Tab lands
+  // inside it) and highlight it, which is a real jump rather than a nudge.
+  const goToSection = (id: string) => {
+    const target = document.getElementById(id)
+    if (!target) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+    target.focus({ preventScroll: true })
+    setFlash({ id })
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-i3x-bg">
       <header className="px-3 sm:px-5 py-4 bg-i3x-surface border-b border-i3x-border flex items-start justify-between gap-3">
@@ -47,12 +71,9 @@ export function InsightsView() {
           <h1 className="text-base font-semibold text-i3x-text flex items-center gap-2">
             Model insights
             <InfoHint label="How is this computed?" title="Model insights">
-              Everything here is an exact count over the loaded catalog — no sampling, no machine
-              learning, no requests. Structure derives from compositional{' '}
-              <span className="font-mono">parentId</span> links and display names, the only facts
-              knowable without asking the server about each object one at a time. A norm needs at
-              least 8 instances agreeing at 90%; findings are ranked by a Wilson lower bound, so
-              990 of 1,000 outranks 9 of 10.
+              Everything here is an exact count over the catalog you have loaded. No sampling, no
+              machine learning, no extra requests. It reads two things: which object each object
+              says its parent is, and what everything is called.
             </InfoHint>
           </h1>
           <p className="text-xs text-i3x-text-muted mt-1">
@@ -81,27 +102,27 @@ export function InsightsView() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-4 space-y-3">
-          <SummaryTiles summary={report.summary} />
+          <SummaryTiles summary={report.summary} onGo={goToSection} />
 
-          <section id={SECTION_IDS.atlas}>
+          <Section id={SECTION_IDS.atlas} flashed={flash?.id === SECTION_IDS.atlas}>
             <TypeAtlas profiles={report.profiles} />
-          </section>
+          </Section>
 
-          <section id={SECTION_IDS.conventions}>
+          <Section id={SECTION_IDS.conventions} flashed={flash?.id === SECTION_IDS.conventions}>
             <ConventionsSection conventions={report.conventions} />
-          </section>
+          </Section>
 
-          <section id={SECTION_IDS.deviations}>
+          <Section id={SECTION_IDS.deviations} flashed={flash?.id === SECTION_IDS.deviations}>
             <DeviationsSection deviations={report.deviations} />
-          </section>
+          </Section>
 
-          <section id={SECTION_IDS.splits}>
+          <Section id={SECTION_IDS.splits} flashed={flash?.id === SECTION_IDS.splits}>
             <SplitsSection splits={report.splits} />
-          </section>
+          </Section>
 
-          <section id={SECTION_IDS.quality}>
+          <Section id={SECTION_IDS.quality} flashed={flash?.id === SECTION_IDS.quality}>
             <DataQualitySection quality={report.dataQuality} />
-          </section>
+          </Section>
 
           <AnomaliesSection anomalies={report.anomalies} />
         </div>
@@ -110,13 +131,74 @@ export function InsightsView() {
   )
 }
 
-function SummaryTiles({ summary }: { summary: InsightsSummary }) {
-  const tiles: { label: string; value: number; target: string }[] = [
+/** Focusable jump target. `tabIndex={-1}` makes .focus() legal on a section. */
+function Section({
+  id,
+  flashed,
+  children,
+}: {
+  id: string
+  flashed: boolean
+  children: ReactNode
+}) {
+  return (
+    <section
+      id={id}
+      tabIndex={-1}
+      className={`scroll-mt-2 rounded-xl outline-none transition-shadow motion-reduce:transition-none ${
+        flashed ? 'ring-2 ring-i3x-primary/60' : ''
+      }`}
+    >
+      {children}
+    </section>
+  )
+}
+
+function SummaryTiles({
+  summary,
+  onGo,
+}: {
+  summary: InsightsSummary
+  onGo: (id: string) => void
+}) {
+  // Conventions and Deviations overlap on purpose: a norm with exceptions is
+  // both. Saying so on the tile beats printing two numbers that quietly share
+  // rows.
+  const conventionCaption = [
+    summary.conventionsWithExceptions > 0
+      ? `${summary.conventionsWithExceptions.toLocaleString()} also under Deviations`
+      : null,
+    summary.trivialConventions > 0
+      ? `${summary.trivialConventions.toLocaleString()} more match the whole model`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  const tiles: { label: string; value: number; caption?: string; target: string }[] = [
     { label: 'Types analyzed', value: summary.typesAnalyzed, target: SECTION_IDS.atlas },
-    { label: 'Conventions', value: summary.conventions, target: SECTION_IDS.conventions },
-    { label: 'Deviations', value: summary.deviations, target: SECTION_IDS.deviations },
+    {
+      label: 'Conventions',
+      value: summary.conventions,
+      caption: conventionCaption || undefined,
+      target: SECTION_IDS.conventions,
+    },
+    {
+      label: 'Deviations',
+      value: summary.deviations,
+      caption: summary.deviations > 0 ? 'exceptions to those conventions' : undefined,
+      target: SECTION_IDS.deviations,
+    },
     { label: 'Splits', value: summary.splits, target: SECTION_IDS.splits },
-    { label: 'Data-quality issues', value: summary.dataQualityIssues, target: SECTION_IDS.quality },
+    {
+      label: 'Data-quality issues',
+      value: summary.dataQualityIssues,
+      caption:
+        summary.unusedTypes > 0
+          ? `${summary.unusedTypes.toLocaleString()} unused types, not an issue`
+          : undefined,
+      target: SECTION_IDS.quality,
+    },
   ]
 
   return (
@@ -125,20 +207,20 @@ function SummaryTiles({ summary }: { summary: InsightsSummary }) {
         <button
           key={tile.label}
           type="button"
-          onClick={() =>
-            document.getElementById(tile.target)?.scrollIntoView({
-              behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-                ? 'auto'
-                : 'smooth',
-              block: 'start',
-            })
-          }
+          aria-controls={tile.target}
+          title={`Go to ${tile.label}`}
+          onClick={() => onGo(tile.target)}
           className="bg-i3x-surface border border-i3x-border rounded-xl px-4 py-3 text-left hover:border-i3x-primary transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
           <div className="text-2xl font-semibold text-i3x-text leading-tight tabular-nums">
             {tile.value.toLocaleString()}
           </div>
           <div className="text-[11px] text-i3x-text-muted mt-0.5">{tile.label}</div>
+          {tile.caption && (
+            <div className="text-[10.5px] text-i3x-text-muted/70 mt-0.5 leading-snug">
+              {tile.caption}
+            </div>
+          )}
         </button>
       ))}
     </div>

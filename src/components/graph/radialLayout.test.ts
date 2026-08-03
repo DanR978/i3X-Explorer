@@ -49,7 +49,7 @@ describe('layoutRadial', () => {
 
   it('gives siblings slots that sum to the full circle and weights heavy subtrees', () => {
     const graph = star(2)
-    // c0 carries three grandchildren; c1 is a leaf — c0 must own the wider slot.
+    // c0 carries three grandchildren; c1 is a leaf, c0 must own the wider slot.
     for (let i = 0; i < 3; i++) {
       graph.nodes.push({ object: obj(`g${i}`), depth: 2, via: 'c0', viaBucket: 'child' })
       graph.edges.push({ source: 'c0', target: `g${i}`, bucket: 'child' })

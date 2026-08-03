@@ -47,7 +47,7 @@ const nodeIndexOf = (rows: TreeRow[], id: string) =>
 const markerMessages = (rows: TreeRow[]) =>
   rows.filter(r => r.kind === 'marker').map(r => r.message)
 
-describe('buildTreeRows — hierarchy walk guards', () => {
+describe('buildTreeRows: hierarchy walk guards', () => {
   it('emits a cycle marker instead of recursing on a parentId cycle', () => {
     const A = obj('A')
     const B = obj('B', { parentId: 'A' })
@@ -82,7 +82,7 @@ describe('buildTreeRows — hierarchy walk guards', () => {
   })
 })
 
-describe('buildTreeRows — paging', () => {
+describe('buildTreeRows: paging', () => {
   const bigFamily = (childCount: number) => {
     const parent = obj('P')
     const kids = Array.from({ length: childCount }, (_, i) => obj(`k${i}`, { parentId: 'P' }))
@@ -125,7 +125,7 @@ describe('buildTreeRows — paging', () => {
 
   it('force-emits a paged-out row on the selection path, after the more row', () => {
     const base = bigFamily(CHILD_PAGE_SIZE + CHILD_PAGE_SLACK + 10)
-    const selected = `hier:k${CHILD_PAGE_SIZE + 30}` // beyond the visible page
+    const selected = `hier:k${CHILD_PAGE_SIZE + 1}` // beyond the visible page
     const rows = buildTreeRows({ ...base, selectedId: selected })
     const selectedIndex = nodeIndexOf(rows, selected)
     const moreIndex = rows.findIndex(r => r.kind === 'more')
@@ -137,7 +137,7 @@ describe('buildTreeRows — paging', () => {
   })
 })
 
-describe('buildTreeRows — parentIndex chains', () => {
+describe('buildTreeRows: parentIndex chains', () => {
   it('points every row at the row it was emitted under', () => {
     const A = obj('A')
     const B = obj('B', { parentId: 'A' })

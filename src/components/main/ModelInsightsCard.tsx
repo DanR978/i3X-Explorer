@@ -2,12 +2,12 @@ import { useInsightsStore } from '../../stores/insights'
 import { InsightIcon } from '../common/icons'
 import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
-import { deviationHeadline, type InsightsReport } from './insightsReport'
+import { deviationNorm, type InsightsReport } from './insightsReport'
 
 /**
  * The Home summary for Model Insights: a health line, the strongest findings
  * as one-liners, and the door to the full page. Deliberately renders whenever
- * a catalog is loaded — unlike the warning strip, the page behind it is
+ * a catalog is loaded. Unlike the warning strip, the page behind it is
  * positive content (the type atlas, the conventions), so hiding the door on a
  * clean model would hide the feature, not noise.
  *
@@ -37,11 +37,10 @@ export function ModelInsightsCard({ report }: { report: InsightsReport }) {
       title="Model insights"
       actions={
         <InfoHint label="What lives behind this?" title="Model insights">
-          The schema the instances imply — mined per type from compositional{' '}
-          <span className="font-mono">parentId</span> links and names: where each kind of data
-          lives, the conventions the model follows, the exceptions that break them (explained, not
-          just listed), and the types that legitimately split across placements. Exact counts,
-          no ML. Open the full page for everything, browsable.
+          The schema your instances imply, worked out per type from what each object says its
+          parent is and what things are called: where each kind of data lives, the conventions the
+          model keeps, and the exceptions that break them. Exact counts, no guessing. Open the
+          page for the full, browsable version.
         </InfoHint>
       }
     >
@@ -69,7 +68,7 @@ export function ModelInsightsCard({ report }: { report: InsightsReport }) {
                 title="Open in model insights"
                 className="w-full text-left px-2 py-1 rounded-lg text-[12px] text-i3x-text hover:bg-i3x-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary truncate"
               >
-                {deviationHeadline(deviation).replace(/ — .*$/, '')}
+                {deviationNorm(deviation)}
               </button>
             </li>
           ))}

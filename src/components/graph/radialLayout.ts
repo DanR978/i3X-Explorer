@@ -8,7 +8,7 @@ import type { EgoEdge, EgoGraph, EgoNode } from './egoGraph'
  * Rings are FIXED and compact. They used to grow to fit every label, which made
  * a 500-child ring thousands of units across: the fitted view shrank the whole
  * map to dust and the side labels still stacked. Now geometry never depends on
- * text — the renderer draws dots and labels at constant *screen* size and culls
+ * text, the renderer draws dots and labels at constant *screen* size and culls
  * labels by each node's angular slot at the current zoom (semantic zoom), so
  * the fitted view is always a readable compact map and zooming in resolves any
  * crowd: screen separation between ring neighbors grows linearly with zoom.
@@ -16,7 +16,7 @@ import type { EgoEdge, EgoGraph, EgoNode } from './egoGraph'
  * Angles come from a weighted sector allocation down the BFS tree: each node
  * hands its children a slice of its own sector, sized by how many descendants
  * each carries. Siblings therefore stay together and tree edges never cross.
- * The slot each node owns is exported — it is exactly the label-culling
+ * The slot each node owns is exported, it is exactly the label-culling
  * priority: heavy subtrees (the hubs worth reading first) own wide slots and
  * label first; sliver-slot leaves appear as you zoom. Non-tree edges (a node
  * reachable two ways) are drawn as chords across the rings, since those
@@ -60,7 +60,7 @@ export interface RadialLayout {
   rings: RingInfo[]
   /**
    * Radius of the outermost ring. The renderer derives its fit extent from
-   * this plus label headroom in *screen* px — labels are screen-constant, so
+   * this plus label headroom in *screen* px, labels are screen-constant, so
    * a fixed diagram-unit pad here would shrink relative to them with depth.
    */
   outerRadius: number

@@ -2,17 +2,17 @@ import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 import { topBy } from '../main/modelStats'
 
 /**
- * The diff engine: two catalogs in, one structural answer out — what was
+ * The diff engine: two catalogs in, one structural answer out, what was
  * added, what was removed, and what moved under a different parent, type,
  * name, or namespace. Pure data-in/data-out, no React, no stores.
  *
  * Identity is `elementId`, full stop. An elementId present in both catalogs is
  * the same object and its fields are compared; only in the baseline = removed;
- * only in the current = added. Nothing here guesses at renames-with-new-ids —
+ * only in the current = added. Nothing here guesses at renames-with-new-ids,
  * the RFC calls elementId the platform's persistent identifier, so the diff
  * takes it at its word.
  *
- * Cost: one Map build plus one iteration per side — strictly linear in the two
+ * Cost: one Map build plus one iteration per side, strictly linear in the two
  * catalog sizes, nothing O(n·m). The result stores elementIds and changed
  * field pairs only, never object copies: rows resolve display data through
  * the live objectIndex / the baseline's own map at render time, so a diff of
@@ -20,7 +20,7 @@ import { topBy } from '../main/modelStats'
  *
  * Metadata comparison (`metadata` / `schemaExtensions`, via stable stringify)
  * is opt-in (`deepCompare`) and runs only for objects whose scalar fields all
- * matched — an object already flagged as changed doesn't need a second,
+ * matched, an object already flagged as changed doesn't need a second,
  * costlier reason. So the `metadataOnly` category means exactly that: nothing
  * about the object changed *except* its metadata.
  */
@@ -32,7 +32,7 @@ export interface CatalogSide {
   /**
    * Prebuilt elementId → object map (the explorer store's `objectIndex` for
    * the live side, a loaded snapshot's index otherwise). Built here if absent.
-   * Must be last-wins over `objects` — both callers' maps are.
+   * Must be last-wins over `objects`, both callers' maps are.
    */
   objectIndex?: Map<string, ObjectInstance>
 }
@@ -65,7 +65,7 @@ export interface CatalogDiff {
   changed: ObjectChange[]
   /**
    * Category views: references into `changed`, not copies. Counted
-   * independently — one object re-parented AND re-typed appears in both lists,
+   * independently, one object re-parented AND re-typed appears in both lists,
    * and the UI labels the counts that way.
    */
   reparented: ObjectChange[]
@@ -114,7 +114,7 @@ function normalizeField(value: string | null | undefined): string | null {
   return value == null || value === '' ? null : value
 }
 
-/** Last-wins elementId → object map — the same shape the explorer store builds. */
+/** Last-wins elementId → object map, the same shape the explorer store builds. */
 export function buildObjectIndex(objects: ObjectInstance[]): Map<string, ObjectInstance> {
   const index = new Map<string, ObjectInstance>()
   for (const object of objects) index.set(object.elementId, object)
@@ -124,7 +124,7 @@ export function buildObjectIndex(objects: ObjectInstance[]): Map<string, ObjectI
 /**
  * Deterministic JSON with keys sorted at every level, so two semantically
  * equal metadata objects stringify identically regardless of key order.
- * (undefined values serialize as the literal `undefined` — not valid JSON,
+ * (undefined values serialize as the literal `undefined`, not valid JSON,
  * but this string is only ever compared, never parsed.)
  */
 export function stableStringify(value: unknown): string {
@@ -283,14 +283,14 @@ function diffIds(baseline: string[], current: string[]): { added: string[]; remo
 export interface ChangedSubtree {
   rootId: string
   label: string
-  /** Which catalog resolves the root — 'baseline' when the whole subtree is gone. */
+  /** Which catalog resolves the root, 'baseline' when the whole subtree is gone. */
   side: 'current' | 'baseline'
   changes: number
 }
 
 /**
  * Group every diff entry under its root-level ancestor and keep the busiest
- * roots — "where in the model did the change land". Adds and field changes
+ * roots, "where in the model did the change land". Adds and field changes
  * walk the *current* parent chain, removals the *baseline* chain (their
  * parents may not exist anymore). Partial selection via topBy, not a full
  * sort, and the upward walks carry a visited set: some servers emit parentId
@@ -303,7 +303,7 @@ export function topChangedSubtrees(
   limit = 8
 ): ChangedSubtree[] {
   const tally = new Map<string, number>()
-  // Memoized per side — a thousand changes under one deep branch cost one walk.
+  // Memoized per side, a thousand changes under one deep branch cost one walk.
   const baseRoots = new Map<string, string>()
   const currRoots = new Map<string, string>()
 
@@ -343,7 +343,7 @@ function rootOf(
     const object = index.get(currentId)
     const parentId = object ? normalizeParent(object.parentId) : null
     // Stop at a true root, an orphan (parent not in this catalog), or a cycle
-    // re-entry — in all three cases this is the highest honest ancestor.
+    // re-entry, in all three cases this is the highest honest ancestor.
     if (!object || parentId === null || !index.has(parentId) || visited.has(parentId)) break
     visited.add(currentId)
     path.push(currentId)

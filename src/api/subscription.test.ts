@@ -7,7 +7,7 @@ async function flushMicrotasks(turns = 10): Promise<void> {
   for (let i = 0; i < turns; i++) await Promise.resolve()
 }
 
-// A 200 response whose stream ends immediately — drives the reconnect path.
+// A 200 response whose stream ends immediately, drives the reconnect path.
 function endedStreamResponse() {
   return {
     ok: true,
@@ -38,7 +38,7 @@ describe('SSESubscription', () => {
     vi.restoreAllMocks()
   })
 
-  it('disconnect() cancels a pending reconnect — no zombie fetch after deletion', async () => {
+  it('disconnect() cancels a pending reconnect, no zombie fetch after deletion', async () => {
     const fetchStub = vi.fn(async () => endedStreamResponse())
     vi.stubGlobal('fetch', fetchStub)
     const onError = vi.fn()
@@ -70,7 +70,7 @@ describe('SSESubscription', () => {
     expect(fetchStub).toHaveBeenCalledTimes(2) // second loop only
 
     // Advance past the first loop's reconnect delay: only the second loop's own
-    // reconnect (also 1000ms, attempts were reset) may fire — one fetch, not two.
+    // reconnect (also 1000ms, attempts were reset) may fire, one fetch, not two.
     await vi.advanceTimersByTimeAsync(1000)
     expect(fetchStub).toHaveBeenCalledTimes(3)
 

@@ -8,49 +8,61 @@ import type { DataQuality, InsightRef } from '../main/insightsReport'
 import type { ReactNode } from 'react'
 
 /**
- * The model-quality hub: the Home strip's orphan/untyped/unused counts, but
- * with the actual objects browsable — an orphan count you can't inspect is a
- * dead end. Hidden entirely when the catalog is clean (the summary tile
- * carries the zero).
+ * The model-quality hub: the Home strip's orphan/untyped counts, but with the
+ * actual objects browsable, because an orphan count you can't inspect is a
+ * dead end. Hidden entirely when there is nothing to say.
+ *
+ * Types with no instances sit BELOW the issue list and are not counted in it.
+ * In I3X a namespace is a type library, so a server that publishes a profile
+ * it doesn't fully instantiate is behaving correctly. Counting those made the
+ * page's largest number its most benign fact.
  */
 export function DataQualitySection({ quality }: { quality: DataQuality }) {
-  const total =
-    quality.orphans.length +
-    quality.untyped.length +
-    quality.unusedTypes.length +
-    quality.duplicateElementIds.length
-  if (total === 0) return null
+  const issues =
+    quality.orphans.length + quality.untyped.length + quality.duplicateElementIds.length
+  if (issues === 0 && quality.unusedTypes.length === 0) return null
 
   return (
     <Card
-      title={`Data quality · ${total.toLocaleString()} ${total === 1 ? 'issue' : 'issues'}`}
+      title={`Data quality · ${issues.toLocaleString()} ${issues === 1 ? 'issue' : 'issues'}`}
       actions={
         <InfoHint label="What counts as an issue?" title="Data quality">
-          Catalog integrity, as opposed to structural patterns: orphans name a parent this catalog
-          doesn't contain (usually a partial load, or a server reporting parents it won't list);
-          untyped objects carry no <span className="font-mono">typeId</span>, so nothing describes
-          their shape; unused types are declared but have no instances; duplicate elementIds
-          collide within one server response (the last entry wins everywhere in this app).
+          An orphan names a parent this catalog doesn't contain, usually a partial load. An
+          untyped object carries no <span className="font-mono">typeId</span>, so nothing
+          describes its shape. A duplicate elementId means one server response used the same id
+          twice, and the last one wins everywhere in this app.
         </InfoHint>
       }
     >
-      <div className="space-y-1">
-        <QualityBlock
-          label="Orphaned objects"
-          count={quality.orphans.length}
-        >
-          <RefList refs={quality.orphans} />
-        </QualityBlock>
-        <QualityBlock label="Untyped objects" count={quality.untyped.length}>
-          <RefList refs={quality.untyped} />
-        </QualityBlock>
-        <QualityBlock label="Declared types with no instances" count={quality.unusedTypes.length}>
-          <TypeList types={quality.unusedTypes} />
-        </QualityBlock>
-        <QualityBlock label="Duplicate elementIds" count={quality.duplicateElementIds.length}>
-          <DuplicateList duplicates={quality.duplicateElementIds} />
-        </QualityBlock>
-      </div>
+      {issues === 0 ? (
+        <p className="px-2 py-1 text-[12px] text-i3x-text-muted">
+          No orphans, untyped objects, or duplicate ids.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          <QualityBlock label="Orphaned objects" count={quality.orphans.length}>
+            <RefList refs={quality.orphans} />
+          </QualityBlock>
+          <QualityBlock label="Untyped objects" count={quality.untyped.length}>
+            <RefList refs={quality.untyped} />
+          </QualityBlock>
+          <QualityBlock label="Duplicate elementIds" count={quality.duplicateElementIds.length}>
+            <DuplicateList duplicates={quality.duplicateElementIds} />
+          </QualityBlock>
+        </div>
+      )}
+
+      {quality.unusedTypes.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-i3x-border">
+          <QualityBlock
+            label="Declared types with no instances"
+            count={quality.unusedTypes.length}
+            note="Not an issue. A namespace is a type library, so a profile can declare types this server never instantiates. Worth a look only if you expected those objects to be here."
+          >
+            <TypeList types={quality.unusedTypes} />
+          </QualityBlock>
+        </div>
+      )}
     </Card>
   )
 }
@@ -58,10 +70,13 @@ export function DataQualitySection({ quality }: { quality: DataQuality }) {
 function QualityBlock({
   label,
   count,
+  note,
   children,
 }: {
   label: string
   count: number
+  /** Shown under the header. Used to say when a count is not a problem. */
+  note?: string
   children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -81,12 +96,13 @@ function QualityBlock({
           {count.toLocaleString()}
         </span>
       </button>
-      {open && <div className="pl-7 pb-2">{children}</div>}
+      {note && <p className="pl-7 pr-2 text-[11px] text-i3x-text-muted/80">{note}</p>}
+      {open && <div className="pl-7 pb-2 pt-1">{children}</div>}
     </div>
   )
 }
 
-/** Windowed — an orphan list on a partial load can be thousands long. */
+/** Windowed, an orphan list on a partial load can be thousands long. */
 function RefList({ refs }: { refs: InsightRef[] }) {
   const { selectElement } = useElementNavigation()
   return (

@@ -7,7 +7,7 @@ import type { ObjectInstance } from '../../api/types'
  *
  * The repo's precedent is computeModelStats at ~70ms for 100k objects; the
  * diff touches two catalogs, so the target is <200ms for the scalar pass.
- * The assertion is deliberately looser (CI machines vary wildly) — the point
+ * The assertion is deliberately looser (CI machines vary wildly), the point
  * of this test is the printed number, the assertion only catches a complexity
  * regression (an accidental O(n·m) would blow past 1s by orders of magnitude).
  */
@@ -43,7 +43,7 @@ function mutate(baseline: ObjectInstance[]): ObjectInstance[] {
     if (i % 100 === 7) continue // 1,000 removed
     const source = baseline[i]
     if (i % 100 === 11) {
-      // obj-3's children are i ∈ 31..40, which never hit this residue — every
+      // obj-3's children are i ∈ 31..40, which never hit this residue, every
       // re-parent in this bucket is a real change.
       current.push({ ...source, parentId: 'obj-3' }) // 1,000 re-parented
     } else if (i % 100 === 23) {
@@ -53,7 +53,7 @@ function mutate(baseline: ObjectInstance[]): ObjectInstance[] {
     } else if (i % 100 === 47) {
       current.push({ ...source, metadata: { ...source.metadata, unit: 'F' } }) // 1,000 metadata-only
     } else {
-      current.push(source) // unchanged entries share the object — identity is irrelevant to the diff
+      current.push(source) // unchanged entries share the object, identity is irrelevant to the diff
     }
   }
   for (let i = 0; i < 1_000; i++) {

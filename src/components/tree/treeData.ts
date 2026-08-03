@@ -247,7 +247,7 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
   // Rows on the path to the current selection are exempt from paging: reveal
   // (a search jump, Back/Forward) must always find the selected row, even at
   // position 1,200 of a paged child list. The exempt entry is emitted after
-  // the "Show more" row — out of sequence, but present and scrollable-to.
+  // the "Show more" row, out of sequence, but present and scrollable-to.
   const mustShowIds = new Set<string>()
   if (selectedId) {
     mustShowIds.add(selectedId)

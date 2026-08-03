@@ -10,7 +10,7 @@ const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 export function isNewerVersion(current: string, candidate: string): boolean {
   // Strip a leading "v" and any prerelease suffix; missing parts count as 0.
   // So "v1.1" reads as 1.1.0, and "v1.1.0-rc1" as 1.1.0 (an rc would nag a
-  // 1.0.0 user — fine for a repo that only publishes stable releases; the old
+  // 1.0.0 user, fine for a repo that only publishes stable releases; the old
   // Number() parse turned both cases into NaN and never offered them at all).
   const parse = (v: string) =>
     v.replace(/^v/, '').split('-')[0].split('.').map(part => {

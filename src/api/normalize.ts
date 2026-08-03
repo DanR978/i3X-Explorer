@@ -2,8 +2,8 @@ import type { ObjectInstance, ServerCapabilities } from './types'
 
 /**
  * Pure response-normalization helpers for the multi-version I3X client.
- * Extracted from client.ts so the most regression-prone logic in the app —
- * keeping three wire formats straight — is unit-testable without a network.
+ * Extracted from client.ts so the most regression-prone logic in the app,
+ * keeping three wire formats straight, is unit-testable without a network.
  */
 
 // v0 = Alpha, v1-beta = v1 Beta, v1 = v1 Release (1.0+)
@@ -76,8 +76,8 @@ export interface InfoClassification {
 /**
  * Interprets the GET /info probe. Non-OK → v0 (genuine absence of /info).
  * OK with a parseable specVersion/version/apiVersion ≥ 1.0 and no "beta"
- * serverVersion → v1 (Release). Any other OK response — including an
- * unusable body (pass `body: undefined` when parsing failed) — → v1-beta.
+ * serverVersion → v1 (Release). Any other OK response, including an
+ * unusable body (pass `body: undefined` when parsing failed) → v1-beta.
  */
 export function classifyInfoResponse(input: { ok: boolean; body: unknown }): InfoClassification {
   if (!input.ok) return { version: 'v0', capabilities: null }

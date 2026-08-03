@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 /**
- * The app's icon set. Every pictograph in the UI comes from here — stroke-based
+ * The app's icon set. Every pictograph in the UI comes from here, stroke-based
  * SVGs on `currentColor`, so icons inherit text color, scale crisply at any
  * size, and render identically on every platform (the emoji they replaced
  * varied wildly between macOS/Windows/Linux and were unreadable in dark mode).

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
-import { getClient } from '../../api/client'
-import { useExplorerStore } from '../../stores/explorer'
 import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
-import { expandEgoGraph, type EgoGraph } from './egoGraph'
+import type { EgoGraph } from './egoGraph'
 import { COLUMN_WIDTH, layoutTree, MAX_LABEL_CHARS, type PositionedNode } from './treeLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 import { FrameIcon } from '../common/icons'
@@ -33,11 +31,16 @@ const MIN_VIEW_H = 520
 export interface TreeGraphProps {
   /** The element at the root of the tree: the selected object, or whatever was dropped in. */
   root: ObjectInstance
-  depth: number
   /**
-   * Walk child edges only, from the very first hop: the pure subtree beneath the
-   * root — no parent leaf, no non-hierarchy links. The Subtree tab sets this.
+   * The walk, owned one level up (`useEgoGraph`) and shared with the relationship
+   * list, so the list and the drawing can never show different structures.
    */
+  graph: EgoGraph | null
+  isLoading: boolean
+  error: string | null
+  /** Hops the walk was asked for. Describes the drawing; it no longer drives it. */
+  depth: number
+  /** Whether that walk was descendants-only, for the accessible label's wording. */
   descendantsOnly?: boolean
   /**
    * Element dropped onto the canvas: re-root here without navigating away.
@@ -71,6 +74,9 @@ export interface TreeGraphProps {
  */
 export function TreeGraph({
   root,
+  graph,
+  isLoading,
+  error,
   depth,
   descendantsOnly = false,
   onFocusElement,
@@ -80,57 +86,10 @@ export function TreeGraph({
 }: TreeGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const objectIndex = useExplorerStore(state => state.objectIndex)
-  const childrenByParent = useExplorerStore(state => state.childrenByParent)
-
-  const [graph, setGraph] = useState<EgoGraph | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [isDropTarget, setIsDropTarget] = useState(false)
-
-  // The walk reads the store, but a change to allObjects (the 30s poll) must not
-  // re-trigger it. Only the root and the depth do. Refs keep the effect's deps honest.
-  const storeRef = useRef({ objectIndex, childrenByParent })
-  storeRef.current = { objectIndex, childrenByParent }
-
-  useEffect(() => {
-    const client = getClient()
-    if (!client) {
-      setError('Not connected.')
-      return
-    }
-
-    let cancelled = false
-    setIsLoading(true)
-    setError(null)
-
-    expandEgoGraph({
-      client,
-      root,
-      depth,
-      store: storeRef.current,
-      descendantsOnly,
-      cancelled: () => cancelled,
-    })
-      .then(result => {
-        if (!cancelled) setGraph(result)
-      })
-      .catch(err => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to walk relationships')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [root, depth, descendantsOnly])
 
   const layout = useMemo(() => (graph ? layoutTree(graph) : null), [graph])
 
@@ -261,7 +220,7 @@ export function TreeGraph({
 
   // Locator: a search pick centres the view on that node and zooms in enough to
   // read its neighborhood (a couple of columns). The token ref means a request is
-  // answered exactly once — but late, if it lands while the walk is still loading,
+  // answered exactly once, but late, if it lands while the walk is still loading,
   // since nodeById refreshing re-runs the effect with the request still unhandled.
   // The ref starts at the mount-time token so a remount (the Tree/Rings toggle)
   // doesn't re-answer an old request; a pick that isn't drawn is answered late

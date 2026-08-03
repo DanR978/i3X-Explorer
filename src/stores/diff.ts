@@ -24,12 +24,12 @@ import {
 
 /**
  * Snapshot & diff state, deliberately its own store: loading a baseline must
- * leave the explorer store — and therefore the tree — completely untouched. A
+ * leave the explorer store, and therefore the tree, completely untouched. A
  * loaded baseline is a second full catalog held in memory (~2× the footprint);
  * the diff *result* is small (elementIds and field pairs only), so keeping it
  * around while the view is closed costs nothing worth reclaiming.
  *
- * Capture reads the already-fetched catalog straight out of the stores — zero
+ * Capture reads the already-fetched catalog straight out of the stores, zero
  * network requests. If you want a fresher snapshot, refresh first; that's your
  * call, not a capture side effect.
  *
@@ -53,7 +53,7 @@ interface DiffState {
 
   diff: CatalogDiff | null
   subtrees: ChangedSubtree[]
-  /** When the diff last ran — the "as of" for a live right side. */
+  /** When the diff last ran, the "as of" for a live right side. */
   diffedAt: string | null
 
   viewOpen: boolean
@@ -87,7 +87,7 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  // Revoke later — revoking synchronously can cancel the download.
+  // Revoke later, revoking synchronously can cancel the download.
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
@@ -175,7 +175,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   runDiff: () => {
     if (!get().baseline) return
     set({ busy: 'diffing' })
-    // Let the "Computing diff…" frame paint before the synchronous compute —
+    // Let the "Computing diff…" frame paint before the synchronous compute,
     // ~50ms scalar / ~200ms deep at 100k (see diffEngine.perf.test.ts), well
     // under a worker's complexity but long enough to want the affordance.
     setTimeout(() => {
@@ -243,7 +243,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
 // Navigating anywhere (tree click, search, Back/Forward, a diff row itself)
 // leaves the diff view: the main panel shows one thing at a time and the
 // selection is the source of truth for what that is. The baseline and diff
-// stay loaded — reopening from the toolbar is instant.
+// stay loaded, reopening from the toolbar is instant.
 useExplorerStore.subscribe((state, prev) => {
   if (state.selectedItem !== prev.selectedItem || state.historyIndex !== prev.historyIndex) {
     const diffState = useDiffStore.getState()

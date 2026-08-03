@@ -3,7 +3,7 @@
  * the icon set (`icons.tsx`), spun by Tailwind's `animate-spin`. Color comes
  * from the call site via `currentColor`, like every other icon.
  *
- * Always pair it with a text label — under reduced motion the arc freezes, so
+ * Always pair it with a text label, under reduced motion the arc freezes, so
  * the words have to carry the state on their own.
  */
 export function Spinner({ size = 14, className = '' }: { size?: number; className?: string }) {

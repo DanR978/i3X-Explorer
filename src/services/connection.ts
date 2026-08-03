@@ -6,7 +6,7 @@ import { useSubscriptionsStore } from '../stores/subscriptions'
 /**
  * The connect/disconnect flows, extracted from the Toolbar so the connection
  * dialog can re-run them when Save changes the URL or credentials while
- * connected. All state goes through getState() — no hooks, callable anywhere.
+ * connected. All state goes through getState(), no hooks, callable anywhere.
  * Modal outcomes (redirect notice, v0 block) are store fields the Toolbar
  * renders.
  */
@@ -79,7 +79,7 @@ export async function performConnect(): Promise<void> {
       // (but before the object list) left a window where the skeletons gave
       // way to empty states that the arriving model then replaced.
       client.getObjects().then(explorer.setAllObjects).catch(err => {
-        // A failure here means a silently empty Objects/Hierarchy tree — say so.
+        // A failure here means a silently empty Objects/Hierarchy tree, say so.
         console.warn('Object list prefetch failed:', err)
         useConnectionStore.getState().setError(
           `Connected, but loading the object list failed: ${err instanceof Error ? err.message : String(err)}`

@@ -79,7 +79,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
   }, [isConnected])
 
   const handleDataUpdate = useCallback((items: SyncResponseItem[]) => {
-    // Data flowing is the strongest health signal — refund the recovery budget.
+    // Data flowing is the strongest health signal, refund the recovery budget.
     recoveryRef.current.attempts = 0
     const { updateLiveValue } = useSubscriptionsStore.getState()
     items.forEach(item => {
@@ -99,7 +99,7 @@ export function SubscriptionTransportProvider({ children }: { children: ReactNod
   const startStreamRef = useRef<(subscriptionId: string) => Promise<void>>()
 
   // The concurrency rules (re-entrancy guard, transport teardown, item
-  // carry-over, attempt budget) live in performRecovery — see recovery.ts.
+  // carry-over, attempt budget) live in performRecovery, see recovery.ts.
   const handleRecovery = useCallback(async (oldSubscriptionId: string) => {
     const client = getClient()
     if (!client) return

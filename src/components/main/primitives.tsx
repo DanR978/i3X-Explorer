@@ -32,7 +32,7 @@ export function Card({
 /** Labeled, monospaced, single-line value box. Full text lives in the tooltip. */
 export function Field({ label, value }: { label: string; value: string | null | undefined }) {
   const isEmpty = value == null || value === ''
-  const shown = isEmpty ? '—' : value
+  const shown = isEmpty ? '-' : value
 
   return (
     <div className="min-w-0">

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CheckIcon, CopyIcon } from './icons'
 
 /**
- * Like details/CopyButton, but the payload is built on click — never eagerly.
+ * Like details/CopyButton, but the payload is built on click, never eagerly.
  * For panes whose copy payload is expensive (a 50k-row diff category, a
  * finding's full outlier list), building the JSON on render would tax every
  * frame for a button almost nobody presses.
@@ -15,7 +15,7 @@ export function CopyJsonButton({ build, title }: { build: () => string; title: s
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard unavailable (insecure context) — fail quietly, as CopyButton does.
+      // Clipboard unavailable (insecure context), fail quietly, as CopyButton does.
     }
   }
   return (

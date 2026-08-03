@@ -7,7 +7,7 @@ const MAX_SUGGESTIONS = 8
 /**
  * Compact search box for the Relationships header. One input, two jobs: the
  * text filters the relationship list down as you type, and the autocomplete
- * locates a picked element on the map — zoom to it and spotlight it — without
+ * locates a picked element on the map, zoom to it and spotlight it, without
  * navigating away.
  */
 export function RelationshipSearch({

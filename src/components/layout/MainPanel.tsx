@@ -13,12 +13,12 @@ import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 /**
  * The main content panel. Top-level states, driven purely by store state:
  *
- *   diff view open     → snapshot diff (stores/diff.ts — any navigation closes it)
- *   insights view open → model insights (stores/insights.ts — same lifecycle)
+ *   diff view open     → snapshot diff (stores/diff.ts, any navigation closes it)
+ *   insights view open → model insights (stores/insights.ts, same lifecycle)
  *   nothing selected   → Home shell (model overview)
  *   object selected    → tabbed element detail
  *
- * The two full-panel views are mutually exclusive — each store closes the
+ * The two full-panel views are mutually exclusive, each store closes the
  * other on open, so the order of the first two branches is belt-and-braces.
  * Namespace and object-type selections reuse the same header frame without
  * tabs. The panel never imports the tree; both sides share `selectItem`.

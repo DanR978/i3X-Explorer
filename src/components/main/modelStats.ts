@@ -93,7 +93,7 @@ export function computeModelStats(
   // Optional pre-built artifacts so getInsightsReport can run the index build
   // and the depth walk ONCE for both this and the insights report. When shared
   // depths come from the deduped catalog, the histogram differs from a raw walk
-  // only on catalogs with duplicate elementIds — which the insights quality hub
+  // only on catalogs with duplicate elementIds, which the insights quality hub
   // surfaces anyway.
   shared?: { index: Map<string, ObjectInstance>; depths: Map<string, number> }
 ): ModelStats {

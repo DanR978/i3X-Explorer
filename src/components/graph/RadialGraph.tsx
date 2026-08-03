@@ -1,10 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
-import { getClient } from '../../api/client'
-import { useExplorerStore } from '../../stores/explorer'
 import { BUCKET_COLOR, BUCKET_DASH, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
-import { expandEgoGraph, type EgoGraph } from './egoGraph'
+import type { EgoGraph } from './egoGraph'
 import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 import { FrameIcon } from '../common/icons'
@@ -17,7 +15,7 @@ const MAX_SCALE = 40
 
 /**
  * Semantic zoom: node positions live in diagram units, but dots, labels and
- * strokes are drawn at constant SCREEN size — their unit size is divided by
+ * strokes are drawn at constant SCREEN size, their unit size is divided by
  * the zoom and calibrated against the measured pane (its minor dimension), so
  * "11px" text really renders at 11 CSS px on any pane. FALLBACK_PANE covers
  * the frame before the ResizeObserver's first measurement.
@@ -38,6 +36,14 @@ const LABEL_PX = 11
 export interface RadialGraphProps {
   /** The element at the center: the selected object, or whatever was dropped in. */
   root: ObjectInstance
+  /**
+   * The walk, owned one level up (`useEgoGraph`) and shared with the relationship
+   * list, so the list and the drawing can never show different structures.
+   */
+  graph: EgoGraph | null
+  isLoading: boolean
+  error: string | null
+  /** Hops the walk was asked for. Describes the drawing; it no longer drives it. */
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
   onFocusElement: (elementId: string) => void
@@ -64,13 +70,16 @@ export interface RadialGraphProps {
  * drawn at constant screen size, so the fitted view is always a readable
  * overview no matter the fan-out: a 1,000-child ring reads as a dense band
  * with its hubs labeled, and zooming is the microscope that separates and
- * labels the rest (label culling is by angular slot — see radialLayout).
+ * labels the rest (label culling is by angular slot, see radialLayout).
  * Edge color is the relationship bucket, read from the inner node outward,
  * matching the legend below the card. This is the "rings" view; the "tree"
  * view (`TreeGraph`) is the other option in the toggle.
  */
 export function RadialGraph({
   root,
+  graph,
+  isLoading,
+  error,
   depth,
   onFocusElement,
   onSelectElement,
@@ -79,12 +88,6 @@ export function RadialGraph({
 }: RadialGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const objectIndex = useExplorerStore(state => state.objectIndex)
-  const childrenByParent = useExplorerStore(state => state.childrenByParent)
-
-  const [graph, setGraph] = useState<EgoGraph | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 })
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
@@ -104,46 +107,6 @@ export function RadialGraph({
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-
-  // The walk reads the store, but a change to allObjects (the 30s poll) must not
-  // re-trigger it. Only the root and the depth do. Refs keep the effect's deps honest.
-  const storeRef = useRef({ objectIndex, childrenByParent })
-  storeRef.current = { objectIndex, childrenByParent }
-
-  useEffect(() => {
-    const client = getClient()
-    if (!client) {
-      setError('Not connected.')
-      return
-    }
-
-    let cancelled = false
-    setIsLoading(true)
-    setError(null)
-
-    expandEgoGraph({
-      client,
-      root,
-      depth,
-      store: storeRef.current,
-      cancelled: () => cancelled,
-    })
-      .then(result => {
-        if (!cancelled) setGraph(result)
-      })
-      .catch(err => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to walk relationships')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [root, depth])
 
   const layout = useMemo(() => (graph ? layoutRadial(graph) : null), [graph])
 
@@ -279,7 +242,7 @@ export function RadialGraph({
   const unitOverScale = (extent * 2) / paneMin / transform.scale
 
   // The zoom ceiling adapts to the densest slot: MAX_SCALE is the floor, but a
-  // crowded ring needs more before its sliver slots can label and separate —
+  // crowded ring needs more before its sliver slots can label and separate,
   // a hard cap there would leave those nodes unreachable at any zoom.
   const maxScale = useMemo(() => {
     if (!layout) return MAX_SCALE
@@ -592,7 +555,7 @@ const GraphNode = memo(function GraphNode({
       />
       {/* A fat transparent disc: a 5px circle is a miserable hover target. On a
           crowded ring the disc shrinks to the node's own angular slot, so discs
-          tile instead of stacking — the hover lands on the node nearest the
+          tile instead of stacking, the hover lands on the node nearest the
           cursor rather than whichever painted last, and a pan can start just
           off the band instead of everything on it counting as a node press. */}
       <circle

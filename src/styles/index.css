@@ -180,7 +180,7 @@ html, body, #root {
   to { stroke-dashoffset: 100; }
 }
 
-/* Reduced motion: static logo and glow, no orbiters — the label carries the
+/* Reduced motion: static logo and glow, no orbiters, the label carries the
    state. */
 @media (prefers-reduced-motion: reduce) {
   .i3x-loader-img,

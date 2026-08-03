@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../../api/types'
 import { type RelationshipView, useExplorerStore } from '../../../stores/explorer'
-import { DirectRelationships } from '../../graph/DirectRelationships'
 import type { Neighbor } from '../../graph/egoGraph'
+import { buildEgoTree } from '../../graph/egoTree'
 import type { LocateRequest } from '../../graph/locator'
 import { RelationshipGraph } from '../../graph/RelationshipGraph'
 import { RelationshipLegend } from '../../graph/RelationshipLegend'
+import { RelationshipList } from '../../graph/RelationshipList'
 import { RelationshipSearch } from '../../graph/RelationshipSearch'
+import { useEgoGraph } from '../../graph/useEgoGraph'
 import { Card, SegmentedControl } from '../primitives'
 import { useElementNavigation } from '../navigation'
 import { DepthControl } from './DepthControl'
@@ -20,14 +22,15 @@ const VIEW_OPTIONS: { value: RelationshipView; label: string }[] = [
  * One panel, two views of the same thing, laid out like a Fusion 360 workspace:
  * the browser list on the left, the tree canvas on the right.
  *
- * The list (left) answers "what is this connected to?": every direct
- * relationship, hierarchy and non-hierarchy alike, in one place. The tree (right)
- * answers "what is it connected to through those?", which only becomes a real
- * question past the first hop, so the tree walks out to a configurable depth
- * rather than stopping at the neighbors the list already spells out.
+ * Both read ONE walk, owned here. The list used to fetch its own single hop
+ * while each canvas walked to the chosen depth, so raising the depth grew the
+ * drawing and left the list behind at one hop. Now the depth control moves both:
+ * the list nests out to exactly what the map draws, and the two panes cannot
+ * disagree because there is only one walk to disagree about.
  *
  * Dragging a row from the list onto the tree re-roots it on that element, so you
- * can follow a chain outward without leaving the element you're inspecting.
+ * can follow a chain outward without leaving the element you're inspecting. The
+ * list follows the new root too, for the same reason.
  */
 export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const objectIndex = useExplorerStore(state => state.objectIndex)
@@ -48,7 +51,6 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   // Header search. The text filters the list; picking a suggestion spotlights the
   // node on the map and asks the map to zoom to it (the LocateRequest).
   const [query, setQuery] = useState('')
-  const [neighbors, setNeighbors] = useState<Neighbor[]>([])
   const [spotlightId, setSpotlightId] = useState<string | null>(null)
   const [locate, setLocate] = useState<LocateRequest | null>(null)
   const locateToken = useRef(0)
@@ -63,6 +65,24 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
 
   const root = focused ?? object
   const isRefocused = root.elementId !== object.elementId
+
+  // The one walk. Both panes render it, so the list nests out to exactly what
+  // the map draws and a re-root moves them together.
+  const { graph, isLoading, error } = useEgoGraph(root, depth)
+  const tree = useMemo(() => (graph ? buildEgoTree(graph) : null), [graph])
+
+  // Autocomplete over everything on the map, not just the direct neighbors: at
+  // depth 3 the thing you're hunting for is usually further out than one hop.
+  const neighbors = useMemo<Neighbor[]>(
+    () =>
+      tree
+        ? [...tree.byId.values()].map(node => ({
+            object: node.object,
+            relationshipType: node.relationshipType,
+          }))
+        : [],
+    [tree]
+  )
 
   // A new root is a new picture (and a reset transform), so a lingering
   // spotlight or zoom request there would be stale.
@@ -138,19 +158,24 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
           the panel and a min-width on the map keep it from collapsing. */}
       <div className="flex flex-1 min-h-0 flex-col lg:flex-row gap-4">
         <div className="h-[20rem] lg:h-auto lg:w-[340px] lg:flex-shrink-0 min-h-0">
-          <DirectRelationships
-            element={object}
+          <RelationshipList
+            tree={tree}
+            isLoading={isLoading}
+            error={error}
+            depth={depth}
             onSelect={selectObject}
             onFocus={focusObject}
             onHover={setHoveredId}
             filter={query}
-            onNeighbors={setNeighbors}
           />
         </div>
 
         <div className="h-[26rem] lg:h-auto flex-1 min-w-0 lg:min-w-[20rem] min-h-0">
           <RelationshipGraph
             root={root}
+            graph={graph}
+            isLoading={isLoading}
+            error={error}
             depth={depth}
             onFocusElement={focusElementId}
             onSelectElement={selectElement}

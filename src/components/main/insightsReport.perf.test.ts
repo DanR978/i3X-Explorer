@@ -33,10 +33,13 @@ describe('computeInsightsReport at working scale', () => {
       if (rack % 97 !== 0) {
         objects.push(make(`rack${rack}-switch`, 'switch', `rack${rack}`, `SW-${rack}`))
       }
-      // Sensors: 94% under racks, 6% under cabinets — an engineered split.
+      // Sensors: 94% under racks, 6% under cabinets, an engineered split.
+      // Their names deliberately take a different shape from the PLCs': a
+      // pattern the rest of the catalog shares just as much is house style,
+      // not a convention of one type, and the gate would (rightly) drop it.
       for (let s = 0; s < 8; s++) {
         const parent = (rack * 8 + s) % 100 < 94 ? `rack${rack}` : `cab${rack % 50}`
-        objects.push(make(`rack${rack}-sen${s}`, 'sensor', parent, `SN-${rack}-${s}`))
+        objects.push(make(`rack${rack}-sen${s}`, 'sensor', parent, `Sensor ${rack} ${s}`))
       }
     }
     for (let cab = 0; cab < 50; cab++) objects.push(make(`cab${cab}`, 'cabinet', null, `CB-${cab}`))
@@ -45,7 +48,7 @@ describe('computeInsightsReport at working scale', () => {
     const report = computeInsightsReport(objects, [])
     const ms = performance.now() - start
     console.log(
-      `[perf] insights report over ${objects.length.toLocaleString()} objects: ${ms.toFixed(0)}ms — ` +
+      `[perf] insights report over ${objects.length.toLocaleString()} objects: ${ms.toFixed(0)}ms, ` +
         `${report.summary.conventions} conventions · ${report.summary.deviations} deviations · ${report.summary.splits} splits`
     )
 

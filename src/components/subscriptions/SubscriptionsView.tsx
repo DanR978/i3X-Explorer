@@ -171,7 +171,7 @@ export function SubscriptionsView() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 font-mono text-i3x-text-muted">
-                        {isStreaming ? rate : '—'}
+                        {isStreaming ? rate : '-'}
                       </td>
                       <td className="px-3 py-2.5">
                         {liveValue ? (
@@ -183,7 +183,7 @@ export function SubscriptionsView() {
                       <td className="px-3 py-2.5 font-mono text-i3x-text-muted whitespace-nowrap">
                         {liveValue?.timestamp
                           ? new Date(liveValue.timestamp).toLocaleTimeString()
-                          : '—'}
+                          : '-'}
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         {/* TODO(follow-up): wire to client.unregisterMonitoredItems +

@@ -32,7 +32,7 @@ export interface RecoveryHarness {
 
 export interface RecoveryDeps {
   client: Pick<I3XClient, 'createSubscription' | 'deleteSubscription' | 'registerMonitoredItems'>
-  /** Tear down BOTH transports (SSE and poller) — the re-entry source. */
+  /** Tear down BOTH transports (SSE and poller), the re-entry source. */
   stopTransports: () => void
   startStream: (subscriptionId: string) => Promise<void>
   harness: RecoveryHarness

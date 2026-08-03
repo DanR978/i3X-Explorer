@@ -2,7 +2,7 @@ import { useId } from 'react'
 import iconUrl from '/icon-512.png'
 
 /**
- * The app icon itself (public/icon-512.png — the same emblem the toolbar
+ * The app icon itself (public/icon-512.png, the same emblem the toolbar
  * brand uses, at full resolution), animated as the app's large loading state:
  * the vortex slowly spins, a green glow breathes behind it, and two gradient
  * comet arcs orbit it in opposite directions. Using the real asset keeps the
@@ -11,7 +11,7 @@ import iconUrl from '/icon-512.png'
  * loaders can be on screen at once.
  *
  * Keyframes live in `styles/index.css` (`.i3x-loader-*`). Reduced motion
- * hides the arcs and freezes the rest — pair the loader with a text label
+ * hides the arcs and freezes the rest, pair the loader with a text label
  * that carries the state.
  *
  * Use for surface-level loads (tree, overview, graphs); inline and button

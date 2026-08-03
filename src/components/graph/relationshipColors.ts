@@ -27,6 +27,18 @@ export function bucketOf(relationshipType: string | null | undefined): Relations
   return 'other'
 }
 
+/**
+ * Reading order for relationships: the parent first (where this sits), then its
+ * children, then inheritance, then everything else. Shared by the walk and the
+ * list so a neighbour's position never depends on which one ordered it.
+ */
+export const BUCKET_ORDER: Record<RelationshipBucket, number> = {
+  parent: 0,
+  child: 1,
+  inherits: 2,
+  other: 3,
+}
+
 export const BUCKET_COLOR: Record<RelationshipBucket, string> = {
   parent: 'rgb(var(--i3x-warning))',
   child: 'rgb(var(--i3x-success))',

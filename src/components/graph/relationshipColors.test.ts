@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { bucketOf } from './relationshipColors'
 
 // bucketOf drives edge color, list sort order, AND the descend/don't-descend
-// decision inside expandEgoGraph — a one-line change to its sets silently
+// decision inside expandEgoGraph, a one-line change to its sets silently
 // changes graph topology, so pin every mapping.
 describe('bucketOf', () => {
   it('maps upstream relationship types to parent', () => {

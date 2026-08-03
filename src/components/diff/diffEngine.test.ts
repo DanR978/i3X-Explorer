@@ -131,7 +131,7 @@ describe('diffCatalogs', () => {
     const baseline = side([obj('D', { displayName: 'first' }), obj('D', { displayName: 'second' })])
     const current = side([obj('D', { displayName: 'second' })])
     const diff = diffCatalogs(baseline, current)
-    // The second baseline entry won, so the object compares equal — duplicates
+    // The second baseline entry won, so the object compares equal, duplicates
     // are surfaced in their own counter, they don't fabricate differences.
     expect(diff.identical).toBe(true)
     expect(diff.changed).toEqual([])
@@ -181,7 +181,7 @@ describe('diffCatalogs', () => {
       const baseline = side([obj('A', { displayName: 'Old', metadata: { unit: 'C' } })])
       const current = side([obj('A', { displayName: 'New', metadata: { unit: 'F' } })])
       const diff = diffCatalogs(baseline, current, { deepCompare: true })
-      // Renamed, yes — but not double-reported as a metadata change.
+      // Renamed, yes, but not double-reported as a metadata change.
       expect(diff.renamed).toHaveLength(1)
       expect(diff.metadataOnly).toHaveLength(0)
     })

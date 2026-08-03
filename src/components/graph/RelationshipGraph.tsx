@@ -1,5 +1,6 @@
 import type { ObjectInstance } from '../../api/types'
 import { useExplorerStore } from '../../stores/explorer'
+import type { EgoGraph } from './egoGraph'
 import { RadialGraph } from './RadialGraph'
 import { TreeGraph } from './TreeGraph'
 import type { LocateRequest } from './locator'
@@ -10,12 +11,16 @@ export { ELEMENT_DRAG_TYPE } from './dragType'
 export interface RelationshipGraphProps {
   /** The element at the root/center: the selected object, or whatever was dropped in. */
   root: ObjectInstance
+  /** The walk both views draw, and the list beside them reads. */
+  graph: EgoGraph | null
+  isLoading: boolean
+  error: string | null
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
   onFocusElement: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
-  /** An element hovered outside the map (e.g. a list row) — highlighted as if hovered here. */
+  /** An element hovered outside the map (e.g. a list row), highlighted as if hovered here. */
   externalHoverId?: string | null
   /** A search pick: the active view centres on and zooms to this node. */
   locate?: LocateRequest | null

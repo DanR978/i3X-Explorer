@@ -9,7 +9,7 @@ import type { Split } from '../main/insightsReport'
 /**
  * Types whose placement is genuinely two (or more) things. Calling 710
  * objects "outliers" when they are 6% of a type concentrated in one
- * alternative home isn't a defect report, it's a misread — these render as
+ * alternative home isn't a defect report, it's a misread, these render as
  * distributions, with examples, and never appear in Deviations.
  */
 export function SplitsSection({ splits }: { splits: Split[] }) {
@@ -21,10 +21,9 @@ export function SplitsSection({ splits }: { splits: Split[] }) {
       title={`Splits · ${splits.length.toLocaleString()}`}
       actions={
         <InfoHint label="What is a split?" title="Splits">
-          A type whose instances legitimately live in more than one kind of place — the exceptions
-          are a population, not defects (at least 8 instances and 5% of the type, concentrated in
-          one alternative pattern). Presented as a distribution because that's what it is; if the
-          split itself is a surprise, that's the insight.
+          A type whose instances live in two different kinds of place, in numbers too large to be
+          mistakes. Calling the smaller group "exceptions" would be a misread, so it is shown as a
+          split instead. If the split itself surprises you, that is the finding.
         </InfoHint>
       }
     >
