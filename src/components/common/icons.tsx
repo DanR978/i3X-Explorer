@@ -197,6 +197,26 @@ export const BroadcastIcon = (p: IconProps) => (
   </Icon>
 )
 
+/** Fill the window: arrows out of two opposite corners. */
+export const MaximizeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 3h6v6" />
+    <path d="M9 21H3v-6" />
+    <path d="M21 3l-7.5 7.5" />
+    <path d="M3 21l7.5-7.5" />
+  </Icon>
+)
+
+/** Back into the panel: the same arrows, pointing in. */
+export const MinimizeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 10h6V4" />
+    <path d="M10 14H4v6" />
+    <path d="M20 4l-6 6" />
+    <path d="M4 20l6-6" />
+  </Icon>
+)
+
 /** Fit/reset view: four frame corners. */
 export const FrameIcon = (p: IconProps) => (
   <Icon {...p}>

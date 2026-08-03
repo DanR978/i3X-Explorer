@@ -37,6 +37,8 @@ export function SubtreeTab({ object }: { object: ObjectInstance }) {
         </div>
       }
       className="flex h-full flex-col min-h-0"
+      // A deep subtree is exactly the drawing that runs out of room first.
+      expandable
     >
       <div className="flex-1 min-h-0">
         {/* No list beside it and no drag source in this tab, so onRootElement is

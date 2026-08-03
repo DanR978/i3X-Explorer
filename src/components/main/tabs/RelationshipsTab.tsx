@@ -170,6 +170,9 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
         </div>
       }
       className="flex h-full flex-col min-h-0"
+      // Full screen takes the list with it: the two panes are one workspace,
+      // and spotlight/focus/drag only work while both are on screen.
+      expandable
     >
       {/* The Fusion-style split: browser tree (left) beside the canvas (right).
           Fills the card's height (grows/shrinks with the window); a min-height on
