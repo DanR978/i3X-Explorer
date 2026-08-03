@@ -35,6 +35,11 @@ import {
  *
  * The right-hand side of the diff is the live catalog by default; loading a
  * comparison file swaps it for a second snapshot (environment-vs-environment).
+ *
+ * Whether the *view* is showing is not state here: the diff page is a stop in
+ * the navigation history (`activePage` in stores/explorer.ts), so Back returns
+ * to it like any other page. openView/closeView below are the two words for
+ * that, kept so callers don't have to know where the panel state lives.
  */
 
 export type DiffBusy = 'reading' | 'diffing' | 'saving' | null
@@ -56,7 +61,6 @@ interface DiffState {
   /** When the diff last ran, the "as of" for a live right side. */
   diffedAt: string | null
 
-  viewOpen: boolean
   busy: DiffBusy
   error: string | null
   /** Opt-in metadata/schemaExtensions comparison; re-runs the diff on change. */
@@ -101,7 +105,6 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   diff: null,
   subtrees: [],
   diffedAt: null,
-  viewOpen: false,
   busy: null,
   error: null,
   deepCompare: false,
@@ -125,13 +128,15 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       set({ busy: null })
     } catch (err) {
       // Save failures are rare (no network involved); surface them in the panel.
-      set({ busy: null, error: `Could not save snapshot: ${errorMessage(err)}`, viewOpen: true })
+      set({ busy: null, error: `Could not save snapshot: ${errorMessage(err)}` })
+      get().openView()
     }
   },
 
   loadBaselineFile: async (file) => {
     // Open the view first so "Reading snapshot…" (and any error) has a home.
-    set({ busy: 'reading', error: null, viewOpen: true })
+    set({ busy: 'reading', error: null })
+    get().openView()
     try {
       const text = await decodeSnapshotBytes(await file.arrayBuffer())
       const { snapshot, warnings } = parseSnapshot(text)
@@ -151,7 +156,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   },
 
   loadComparisonFile: async (file) => {
-    set({ busy: 'reading', error: null, viewOpen: true })
+    set({ busy: 'reading', error: null })
+    get().openView()
     try {
       const text = await decodeSnapshotBytes(await file.arrayBuffer())
       const { snapshot, warnings } = parseSnapshot(text)
@@ -219,10 +225,16 @@ export const useDiffStore = create<DiffState>((set, get) => ({
     get().runDiff()
   },
 
-  openView: () => set({ viewOpen: true }),
-  closeView: () => set({ viewOpen: false }),
+  // The page itself is a history stop, so opening and leaving it are ordinary
+  // navigations: Back from a diff row returns to the diff, not past it.
+  openView: () => useExplorerStore.getState().openPage('diff'),
+  closeView: () => {
+    const explorer = useExplorerStore.getState()
+    if (explorer.activePage === 'diff') explorer.closePage()
+  },
 
-  clearBaseline: () =>
+  clearBaseline: () => {
+    get().closeView()
     set({
       baseline: null,
       baselineIndex: new Map(),
@@ -233,20 +245,9 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       diff: null,
       subtrees: [],
       diffedAt: null,
-      viewOpen: false,
       error: null,
-    }),
+    })
+  },
 
   clearError: () => set({ error: null }),
 }))
-
-// Navigating anywhere (tree click, search, Back/Forward, a diff row itself)
-// leaves the diff view: the main panel shows one thing at a time and the
-// selection is the source of truth for what that is. The baseline and diff
-// stay loaded, reopening from the toolbar is instant.
-useExplorerStore.subscribe((state, prev) => {
-  if (state.selectedItem !== prev.selectedItem || state.historyIndex !== prev.historyIndex) {
-    const diffState = useDiffStore.getState()
-    if (diffState.viewOpen) diffState.closeView()
-  }
-})

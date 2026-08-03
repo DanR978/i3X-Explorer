@@ -2,12 +2,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
 import { BUCKET_COLOR, BUCKET_DASH, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
-import type { EgoGraph } from './egoGraph'
+import { descendantIds, type EgoGraph } from './egoGraph'
 import { layoutRadial, MAX_LABEL_CHARS, type PositionedNode } from './radialLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 import { FrameIcon } from '../common/icons'
-import { Spinner } from '../common/Spinner'
 import { I3xLoader } from '../common/I3xLoader'
+import { FocusBadge } from './FocusBadge'
 import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.35
@@ -33,6 +33,9 @@ const FIT_PAD_PX = 72
 const LABEL_MIN_PX = 30
 const LABEL_PX = 11
 
+/** Room a framed branch leaves around itself, as a fraction of the pane. */
+const FOCUS_MARGIN = 0.86
+
 export interface RadialGraphProps {
   /** The element at the center: the selected object, or whatever was dropped in. */
   root: ObjectInstance
@@ -46,7 +49,7 @@ export interface RadialGraphProps {
   /** Hops the walk was asked for. Describes the drawing; it no longer drives it. */
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
-  onFocusElement: (elementId: string) => void
+  onRootElement: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
   /**
@@ -56,8 +59,11 @@ export interface RadialGraphProps {
    */
   externalHoverId?: string | null
   /**
-   * A search pick: centre the view on this node and zoom in. Ignored if the node
-   * isn't drawn; answered late if it arrives while the walk is still loading.
+   * A view request: centre on a node (`scope: 'node'`, a search pick) or frame
+   * it with everything under it and hold that branch lit (`scope: 'subtree'`,
+   * the list's focus button). Never re-roots or re-walks, it only moves the
+   * viewport. Ignored if the node isn't drawn; answered late if it arrives while
+   * the walk is still loading.
    */
   locate?: LocateRequest | null
 }
@@ -81,7 +87,7 @@ export function RadialGraph({
   isLoading,
   error,
   depth,
-  onFocusElement,
+  onRootElement,
   onSelectElement,
   externalHoverId,
   locate,
@@ -92,6 +98,9 @@ export function RadialGraph({
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [isDropTarget, setIsDropTarget] = useState(false)
+  // The branch a subtree focus is holding lit. View state, not walk state: the
+  // graph is untouched, the rest of it is simply dimmed around this one.
+  const [focusId, setFocusId] = useState<string | null>(null)
 
   // Actual pane size (CSS px, minor dimension). All semantic-zoom sizing and
   // the fit pad are calibrated against it.
@@ -126,9 +135,12 @@ export function RadialGraph({
     [layout]
   )
 
-  // A new root is a new picture; keep the old pan/zoom and it would open off-screen.
+  // A new root is a new picture; keep the old pan/zoom and it would open
+  // off-screen, and a focus held over from the old one would light a branch
+  // that may not even be drawn any more.
   useEffect(() => {
     setTransform({ scale: 1, x: 0, y: 0 })
+    setFocusId(null)
   }, [root.elementId])
 
   const toUserSpace = useCallback((clientX: number, clientY: number): [number, number] => {
@@ -215,7 +227,7 @@ export function RadialGraph({
     event.preventDefault()
     setIsDropTarget(false)
     const elementId = event.dataTransfer.getData(ELEMENT_DRAG_TYPE)
-    if (elementId) onFocusElement(elementId)
+    if (elementId) onRootElement(elementId)
   }
 
   // A row hovered in the list highlights here just like a map hover, but an actual
@@ -229,6 +241,15 @@ export function RadialGraph({
 
   const hovered = activeHoverId ? nodeById.get(activeHoverId) : null
   const hoveredNeighbors = activeHoverId ? neighbors.get(activeHoverId) : undefined
+
+  // The lit branch. Re-derived from the current layout, so a deeper walk grows
+  // the focus with the drawing, and a focus whose node is no longer drawn is
+  // dropped rather than dimming everything with nothing lit.
+  const focusSet = useMemo(() => {
+    if (!layout || !focusId || !nodeById.has(focusId)) return null
+    return descendantIds(layout.nodes, focusId)
+  }, [layout, focusId, nodeById])
+  const focusNode = focusSet ? nodeById.get(focusId!) : null
 
   // Fit extent: the outer ring plus FIT_PAD_PX of *screen* headroom for its
   // outward labels. Solved in units (extent = outer + padPx·2·extent/pane) so
@@ -279,11 +300,19 @@ export function RadialGraph({
 
   // Node and edge layers are memoized so panning (which only moves the group
   // transform) doesn't reconcile thousands of elements per frame.
+  // Hovering is the live gesture, so it takes over the dimming while it lasts;
+  // the focus comes back the moment the cursor leaves.
+  const isDim = useCallback(
+    (id: string) =>
+      activeHoverId !== null
+        ? id !== activeHoverId && !hoveredNeighbors?.has(id)
+        : focusSet !== null && !focusSet.has(id),
+    [activeHoverId, hoveredNeighbors, focusSet]
+  )
+
   const edgeElements = useMemo(() => {
     if (!layout) return null
     const width = 1.3 * unitOverScale
-    const isDim = (id: string) =>
-      activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
     return layout.edges.map(edge => {
       const dash = BUCKET_DASH[edge.bucket]
       return (
@@ -300,28 +329,29 @@ export function RadialGraph({
         />
       )
     })
-  }, [layout, unitOverScale, activeHoverId, hoveredNeighbors, baseEdgeOpacity])
+  }, [layout, unitOverScale, isDim, baseEdgeOpacity])
 
   const nodeElements = useMemo(() => {
     if (!layout) return null
-    const isDim = (id: string) =>
-      activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
     return layout.nodes.map(node => {
       const id = node.object.elementId
+      // While a focus is held, its own node reads as the emphasized one, and the
+      // lit branch keeps its labels regardless of how tight its slots are.
+      const focused = activeHoverId === null && focusSet !== null && focusSet.has(id)
       return (
         <GraphNode
           key={id}
           node={node}
           unitOverScale={unitOverScale}
           dimmed={isDim(id)}
-          emphasized={activeHoverId === id}
-          showLabel={labeledIds.has(id) || activeHoverId === id}
+          emphasized={activeHoverId === id || (focused && id === focusId)}
+          showLabel={labeledIds.has(id) || activeHoverId === id || focused}
           onHover={setHoverId}
           onSelect={onSelectElement}
         />
       )
     })
-  }, [layout, unitOverScale, activeHoverId, hoveredNeighbors, labeledIds, onSelectElement])
+  }, [layout, unitOverScale, isDim, activeHoverId, focusSet, focusId, labeledIds, onSelectElement])
 
   // Locator: a search pick centres the view on that node and zooms far enough in
   // that its own label resolves (the 1.6× headroom over the label gate survives
@@ -335,19 +365,53 @@ export function RadialGraph({
   useEffect(() => {
     if (!locate || locate.token === handledLocateToken.current) return
     const node = nodeById.get(locate.elementId)
-    if (!node) {
+    if (!node || !layout) {
       if (!isLoading) handledLocateToken.current = locate.token
       return
     }
     handledLocateToken.current = locate.token
-    const ring = Math.hypot(node.x, node.y)
-    const needed =
-      ring > 0 && node.slot > 0
-        ? (LABEL_MIN_PX * 1.6 * (extent * 2)) / paneMin / (ring * node.slot)
-        : 2.5
-    const scale = Math.max(2.5, Math.min(maxScale, needed))
-    setTransform({ scale, x: -node.x * scale, y: -node.y * scale })
-  }, [locate, nodeById, extent, paneMin, maxScale, isLoading])
+
+    if (locate.scope !== 'subtree') {
+      setFocusId(null)
+      const ring = Math.hypot(node.x, node.y)
+      const needed =
+        ring > 0 && node.slot > 0
+          ? (LABEL_MIN_PX * 1.6 * (extent * 2)) / paneMin / (ring * node.slot)
+          : 2.5
+      const scale = Math.max(2.5, Math.min(maxScale, needed))
+      setTransform({ scale, x: -node.x * scale, y: -node.y * scale })
+      return
+    }
+
+    // Frame the branch. On rings a subtree is an arc rather than a block, so
+    // this is its bounding box; the floor keeps a single leaf (a box of zero
+    // extent) from being zoomed to the ceiling.
+    const ids = descendantIds(layout.nodes, node.object.elementId)
+    let minX = node.x
+    let maxX = node.x
+    let minY = node.y
+    let maxY = node.y
+    for (const drawn of layout.nodes) {
+      if (!ids.has(drawn.object.elementId)) continue
+      if (drawn.x < minX) minX = drawn.x
+      if (drawn.x > maxX) maxX = drawn.x
+      if (drawn.y < minY) minY = drawn.y
+      if (drawn.y > maxY) maxY = drawn.y
+    }
+    const span = extent * 2
+    const boxW = Math.max(maxX - minX, span / 8)
+    const boxH = Math.max(maxY - minY, span / 8)
+    const scale = Math.max(
+      MIN_SCALE,
+      Math.min(maxScale, Math.min(span / boxW, span / boxH) * FOCUS_MARGIN)
+    )
+    setFocusId(node.object.elementId)
+    setTransform({
+      scale,
+      x: -((minX + maxX) / 2) * scale,
+      y: -((minY + maxY) / 2) * scale,
+    })
+  }, [locate, nodeById, layout, extent, paneMin, maxScale, isLoading])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -384,9 +448,12 @@ export function RadialGraph({
               // Fit the whole graph in view, centered, so everything is always
               // visible. A wide pane gets side margins rather than cropping nodes.
               preserveAspectRatio="xMidYMid meet"
-              className={`w-full h-full select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} ${
-                isLoading ? 'opacity-50' : ''
-              }`}
+              // While a walk runs the old drawing is grayed right out, colour
+              // and all, so it reads as the stale thing it is and the loader
+              // isn't competing with a live-looking map underneath it.
+              className={`w-full h-full select-none transition-opacity motion-reduce:transition-none ${
+                isPanning ? 'cursor-grabbing' : 'cursor-grab'
+              } ${isLoading ? 'grayscale opacity-10' : ''}`}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={endPan}
@@ -430,6 +497,19 @@ export function RadialGraph({
           )
         )}
 
+        {/* The walk is in flight: say so, over the grayed-out old drawing (the
+            svg's own class does the graying, see above). Only showing this on
+            the first walk meant a depth change (or any re-walk) sat there
+            looking finished while a round trip per hop was still running. */}
+        {!error && isLoading && layout && (
+          <div className="absolute inset-0 grid place-items-center pointer-events-none">
+            <div className="text-center">
+              <I3xLoader size={64} className="mx-auto" />
+              <p className="mt-3 text-xs text-i3x-text-muted">Walking relationships…</p>
+            </div>
+          </div>
+        )}
+
         {/* Overlays are gated on !error too: a failed re-walk keeps the old
             layout but unmounts the svg, and buttons floating over the error
             message would mutate pan/zoom for a map that isn't there. */}
@@ -443,11 +523,22 @@ export function RadialGraph({
             </GraphButton>
             <GraphButton
               label="Reset view"
-              onClick={() => setTransform({ scale: 1, x: 0, y: 0 })}
+              onClick={() => {
+                setTransform({ scale: 1, x: 0, y: 0 })
+                setFocusId(null)
+              }}
             >
               <FrameIcon size={13} />
             </GraphButton>
           </div>
+        )}
+
+        {!error && focusNode && focusSet && (
+          <FocusBadge
+            name={focusNode.object.displayName}
+            count={focusSet.size}
+            onClear={() => setFocusId(null)}
+          />
         )}
 
         {!error && hovered && (
@@ -473,13 +564,6 @@ export function RadialGraph({
           </div>
         )}
       </div>
-
-      {isLoading && graph && (
-        <p className="mt-2 shrink-0 flex items-center gap-1.5 text-[11.5px] text-i3x-text-muted">
-          <Spinner size={11} />
-          Expanding…
-        </p>
-      )}
     </div>
   )
 }

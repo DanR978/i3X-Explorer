@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { directNeighbors, edgeKey, expandEgoGraph, sortNeighbors, type StoreView } from './egoGraph'
+import {
+  descendantIds,
+  directNeighbors,
+  edgeKey,
+  expandEgoGraph,
+  sortNeighbors,
+  type EgoNode,
+  type StoreView,
+} from './egoGraph'
 import type { I3XClient } from '../../api/client'
 import type { ObjectInstance } from '../../api/types'
 
@@ -139,5 +147,40 @@ describe('expandEgoGraph', () => {
     })
     const ids = graph.nodes.map(n => n.object.elementId).sort()
     expect(ids).toEqual(['C1', 'G1', 'root'])
+  })
+})
+
+describe('descendantIds', () => {
+  // The branch as drawn: what a focus frames and lights.
+  const nodes: EgoNode[] = [
+    { object: obj('root'), depth: 0 },
+    { object: obj('parent'), depth: 1, via: 'root', viaBucket: 'parent' },
+    { object: obj('a'), depth: 1, via: 'root', viaBucket: 'child' },
+    { object: obj('b'), depth: 1, via: 'root', viaBucket: 'child' },
+    { object: obj('a1'), depth: 2, via: 'a', viaBucket: 'child' },
+    { object: obj('a2'), depth: 2, via: 'a', viaBucket: 'child' },
+    { object: obj('a1x'), depth: 3, via: 'a1', viaBucket: 'child' },
+  ]
+
+  it('collects a node and everything below it, itself included', () => {
+    expect([...descendantIds(nodes, 'a')].sort()).toEqual(['a', 'a1', 'a1x', 'a2'])
+  })
+
+  it('is just the node itself for a leaf', () => {
+    expect([...descendantIds(nodes, 'b')]).toEqual(['b'])
+  })
+
+  it('takes the whole drawing from the root', () => {
+    expect(descendantIds(nodes, 'root').size).toBe(nodes.length)
+  })
+
+  it('terminates on a via cycle', () => {
+    // Some servers emit parentId cycles; the walk can carry one through.
+    const cyclic: EgoNode[] = [
+      { object: obj('x'), depth: 0 },
+      { object: obj('y'), depth: 1, via: 'x', viaBucket: 'child' },
+      { object: obj('x'), depth: 2, via: 'y', viaBucket: 'child' },
+    ]
+    expect([...descendantIds(cyclic, 'x')].sort()).toEqual(['x', 'y'])
   })
 })

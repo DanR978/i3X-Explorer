@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
+import type { DetailTab } from '../../stores/explorer'
 import { Chevron } from '../common/Chevron'
-import { GripIcon, TargetIcon } from '../common/icons'
+import { ContextMenu, type MenuEntry } from '../common/ContextMenu'
+import { FrameIcon, GripIcon } from '../common/icons'
 import { Spinner } from '../common/Spinner'
 import { BUCKET_COLOR } from './relationshipColors'
 import {
@@ -13,6 +15,12 @@ import {
   type EgoTreeGroup,
   type EgoTreeNode,
 } from './egoTree'
+import {
+  buildRelationshipGroupMenu,
+  buildRelationshipNodeMenu,
+  EXPAND_BELOW_CAP,
+  type RelationshipMenuActions,
+} from './relationshipMenu'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 
 /**
@@ -39,9 +47,12 @@ const FADE_MASK = 'linear-gradient(to bottom, black calc(100% - 2rem), transpare
  * fades out at the bottom, and rows are paged 50 at a time, so no one branch can
  * bury its siblings and no walk can mount five figures of rows.
  *
- * Rows are draggable onto the map at any depth, which re-roots it on the dropped
- * element. The target button does the same for keyboard users and for anyone who
- * doesn't discover the drag.
+ * Each row offers three different things to do with it, and they are kept
+ * visibly distinct because they cost very different amounts: the ◎ button
+ * **focuses** the map on that row and its children (viewport only, nothing is
+ * re-fetched and nothing is selected), dragging the row onto the map **re-roots**
+ * the walk there, and clicking the name **navigates**. The right-click menu
+ * carries all three plus the copy and expand actions.
  */
 export function RelationshipList({
   tree,
@@ -50,6 +61,7 @@ export function RelationshipList({
   depth,
   onSelect,
   onFocus,
+  onRoot,
   onHover,
   filter,
 }: {
@@ -59,9 +71,12 @@ export function RelationshipList({
   error: string | null
   /** Hops the walk covers, for the count line. */
   depth: number
-  onSelect: (object: ObjectInstance) => void
-  /** Root the relationship map on this object, without navigating to it. */
+  /** Navigate to the object, optionally straight onto one of its detail tabs. */
+  onSelect: (object: ObjectInstance, tab?: DetailTab) => void
+  /** Frame this object and its children on the map. No re-walk, no navigation. */
   onFocus: (object: ObjectInstance) => void
+  /** Re-root the walk (both panes) on this object, without navigating to it. */
+  onRoot: (object: ObjectInstance) => void
   /** Row hovered or left. The map highlights that element as if hovered there. */
   onHover?: (elementId: string | null) => void
   /** Search text: only rows (or whole relationship types) matching it are shown. */
@@ -72,12 +87,21 @@ export function RelationshipList({
   const [overrides, setOverrides] = useState<Map<string, boolean>>(new Map())
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set())
   const [pages, setPages] = useState<Map<string, number>>(new Map())
+  // `trigger` is refocused on close, so Escape puts a keyboard user back on the
+  // row they opened the menu from rather than at the top of the document.
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    entries: MenuEntry[]
+    trigger: HTMLElement | null
+  } | null>(null)
 
   // A new walk is a new picture: the old plan, paging and overrides described a
   // shape that no longer exists.
   useEffect(() => {
     setOverrides(new Map())
     setPages(new Map())
+    setMenu(null)
   }, [tree])
 
   const autoOpen = useMemo(() => (tree ? planAutoExpand(tree) : new Set<string>()), [tree])
@@ -126,6 +150,64 @@ export function RelationshipList({
   // reveal 100 rows rather than 50 twice.
   const showMore = (id: string) =>
     setPages(current => new Map(current).set(id, (current.get(id) ?? PAGE_SIZE) + PAGE_SIZE))
+  const showAll = (id: string) => setPages(current => new Map(current).set(id, Infinity))
+
+  /**
+   * Open or close every branch under these roots, in one write. Capped, and
+   * breadth-first so the cap is spent on the shallow levels: the pane is 340px
+   * wide, and a hub whose whole subtree is mounted in it helps nobody, whereas
+   * its first couple of levels are exactly what "expand all below" was asked
+   * for. Anything past the cap stays behind its counts.
+   */
+  const setSubtreeOpen = (roots: EgoTreeNode[], open: boolean) =>
+    setOverrides(current => {
+      const next = new Map(current)
+      const queue = [...roots]
+      let opened = 0
+      for (let i = 0; i < queue.length && opened < EXPAND_BELOW_CAP; i++) {
+        const node = queue[i]
+        if (node.children.length === 0) continue
+        next.set(node.object.elementId, open)
+        opened++
+        // One at a time, not a spread: a hub's child list can be long enough to
+        // overflow the argument limit.
+        for (const child of node.children) queue.push(child)
+      }
+      return next
+    })
+
+  const menuActions: RelationshipMenuActions = {
+    onOpen: onSelect,
+    onFocus,
+    onRoot,
+    isOpen,
+    onToggle: toggle,
+    onSetBranchOpen: (node, open) => setSubtreeOpen([node], open),
+    onSetGroupOpen: (group, open) => {
+      // Expanding a group implies showing it: a collapsed header with its rows
+      // silently expanded underneath would look like the action did nothing.
+      if (open) setClosedGroups(current => {
+        const next = new Set(current)
+        next.delete(group.type)
+        return next
+      })
+      setSubtreeOpen(group.items, open)
+    },
+    onShowAll: showAll,
+    shownCount: pageOf,
+  }
+
+  const openNodeMenu = (node: EgoTreeNode, x: number, y: number, trigger: HTMLElement | null) =>
+    setMenu({ x, y, trigger, entries: buildRelationshipNodeMenu(node, menuActions) })
+  const openGroupMenu = (group: EgoTreeGroup, x: number, y: number, trigger: HTMLElement | null) =>
+    setMenu({ x, y, trigger, entries: buildRelationshipGroupMenu(group, menuActions) })
+
+  const closeMenu = () => {
+    // A no-op on the row div (not focusable); the point is the keyboard path,
+    // where the trigger is the row's own button.
+    menu?.trigger?.focus?.()
+    setMenu(null)
+  }
 
   const groups = filtered?.groups ?? tree.groups
 
@@ -143,7 +225,7 @@ export function RelationshipList({
             {depth > 1 && tree.total > tree.direct && (
               <> · {tree.total.toLocaleString()} within {depth} hops</>
             )}{' '}
-            · drag a row onto the map to focus it there
+            · right-click a row for more
           </>
         )}
         {/* A deeper walk extends what's already here rather than replacing it, so
@@ -152,8 +234,13 @@ export function RelationshipList({
       </p>
 
       {/* Fills the pane and scrolls in place, so a hub with thousands of children
-          doesn't stretch the card. pr/-mr keeps the scrollbar off the rows. */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1">
+          doesn't stretch the card. pr/-mr keeps the scrollbar off the rows.
+          Scrolling closes an open menu: the row it belongs to moves out from
+          under it. */}
+      <div
+        onScroll={() => setMenu(null)}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1"
+      >
         {groups.length === 0 ? (
           <p className="text-xs text-i3x-text-muted px-2 py-1">
             No relationships match “{text}”.
@@ -182,10 +269,16 @@ export function RelationshipList({
               onSelect={onSelect}
               onFocus={onFocus}
               onHover={onHover}
+              onNodeMenu={openNodeMenu}
+              onGroupMenu={openGroupMenu}
             />
           ))
         )}
       </div>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} entries={menu.entries} onClose={closeMenu} />
+      )}
     </div>
   )
 }
@@ -196,9 +289,23 @@ interface RowHandlers {
   onToggleNode: (node: EgoTreeNode) => void
   pageOf: (id: string) => number
   onShowMoreNode: (id: string) => void
-  onSelect: (object: ObjectInstance) => void
+  onSelect: (object: ObjectInstance, tab?: DetailTab) => void
   onFocus: (object: ObjectInstance) => void
   onHover?: (elementId: string | null) => void
+  /** Right-click (or Shift+F10 / Menu) on a row, at viewport coordinates. */
+  onNodeMenu: (node: EgoTreeNode, x: number, y: number, trigger: HTMLElement | null) => void
+  onGroupMenu: (group: EgoTreeGroup, x: number, y: number, trigger: HTMLElement | null) => void
+}
+
+/** Where a keyboard-opened menu goes: just under the row that asked for it. */
+function menuAnchor(element: HTMLElement): [number, number] {
+  const rect = element.getBoundingClientRect()
+  return [rect.left + 16, rect.bottom]
+}
+
+/** Shift+F10 and the Menu key open the context menu, matching the tree. */
+function isMenuKey(event: React.KeyboardEvent): boolean {
+  return event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
 }
 
 function Group({
@@ -222,6 +329,16 @@ function Group({
       <button
         type="button"
         onClick={onToggle}
+        onContextMenu={event => {
+          event.preventDefault()
+          handlers.onGroupMenu(group, event.clientX, event.clientY, event.currentTarget)
+        }}
+        onKeyDown={event => {
+          if (!isMenuKey(event)) return
+          event.preventDefault()
+          const [x, y] = menuAnchor(event.currentTarget)
+          handlers.onGroupMenu(group, x, y, event.currentTarget)
+        }}
         aria-expanded={isOpen}
         className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-i3x-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
       >
@@ -348,6 +465,8 @@ function NodeRow({
   onSelect,
   onFocus,
   onHover,
+  onNodeMenu,
+  onGroupMenu,
 }: RowHandlers & { node: EgoTreeNode; accent: string }) {
   const { object } = node
   // Past the root the walk descends through child edges only, so everything
@@ -368,12 +487,16 @@ function NodeRow({
         }}
         onMouseEnter={() => onHover?.(object.elementId)}
         onMouseLeave={() => onHover?.(null)}
+        onContextMenu={event => {
+          event.preventDefault()
+          onNodeMenu(node, event.clientX, event.clientY, null)
+        }}
         className="group flex items-center gap-1 rounded-lg hover:bg-i3x-bg"
       >
         <span
           aria-hidden="true"
           className="pl-1.5 flex items-center text-i3x-text-muted/50 cursor-grab active:cursor-grabbing"
-          title="Drag onto the map to focus it here"
+          title="Drag onto the map to root it there"
         >
           <GripIcon size={12} />
         </span>
@@ -398,6 +521,12 @@ function NodeRow({
         <button
           type="button"
           onClick={() => onSelect(object)}
+          onKeyDown={event => {
+            if (!isMenuKey(event)) return
+            event.preventDefault()
+            const [x, y] = menuAnchor(event.currentTarget)
+            onNodeMenu(node, x, y, event.currentTarget)
+          }}
           title={object.elementId}
           className="flex-1 min-w-0 flex items-baseline gap-2 py-1.5 text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
@@ -416,14 +545,17 @@ function NodeRow({
           </span>
         )}
 
+        {/* Focus, not navigation and not a re-root: the map zooms to this node
+            and its children and lights that branch. The picture it is looking
+            at doesn't change, so nothing is re-fetched and nothing is selected. */}
         <button
           type="button"
           onClick={() => onFocus(object)}
-          aria-label={`Focus the map on ${object.displayName}`}
-          title="Focus the map here"
+          aria-label={`Zoom the map to ${object.displayName} and its children`}
+          title="Zoom the map to this and its children"
           className="mr-1 w-6 h-6 grid place-items-center rounded-md text-i3x-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-i3x-surface hover:text-i3x-primary transition-opacity motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary"
         >
-          <TargetIcon size={14} />
+          <FrameIcon size={14} />
         </button>
       </div>
 
@@ -443,6 +575,8 @@ function NodeRow({
           onSelect={onSelect}
           onFocus={onFocus}
           onHover={onHover}
+          onNodeMenu={onNodeMenu}
+          onGroupMenu={onGroupMenu}
         />
       )}
     </li>

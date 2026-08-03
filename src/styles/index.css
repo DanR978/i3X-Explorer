@@ -74,10 +74,18 @@ html, body, #root {
   -webkit-app-region: no-drag;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar. Deliberately thin: every scroll container in this app sits
+   inside something else (the tree panel, a relationship block, a diff category),
+   so a fat bar spends the panel's width on chrome. Chromium takes the -webkit
+   rules; `scrollbar-width: thin` is the same intent for anything that doesn't. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--i3x-scrollbar)) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -86,11 +94,17 @@ html, body, #root {
 
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--i3x-scrollbar));
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--i3x-scrollbar-hover));
+}
+
+/* The corner where a horizontal and a vertical bar meet: left unpainted it
+   renders as a pale square against dark surfaces. */
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ── Component styles ─────────────────────────────────────────────────────── */

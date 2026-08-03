@@ -102,6 +102,36 @@ export function directNeighbors(
   return sortNeighbors([...byId.values()])
 }
 
+/**
+ * `rootId` and everything reached through it in the walk's BFS tree (each node's
+ * `via` is the node it was first reached from).
+ *
+ * This is what "focus on this and its children" frames and lights up: it is the
+ * branch as *drawn*, so the highlight can never claim more than the picture
+ * shows. Iterative and visited-guarded, a server emitting a parentId cycle
+ * cannot spin it.
+ */
+export function descendantIds(nodes: EgoNode[], rootId: string): Set<string> {
+  const children = new Map<string, string[]>()
+  for (const node of nodes) {
+    if (!node.via) continue
+    const siblings = children.get(node.via)
+    if (siblings) siblings.push(node.object.elementId)
+    else children.set(node.via, [node.object.elementId])
+  }
+
+  const ids = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length > 0) {
+    for (const child of children.get(stack.pop()!) ?? []) {
+      if (ids.has(child)) continue
+      ids.add(child)
+      stack.push(child)
+    }
+  }
+  return ids
+}
+
 /** Parent first, then children, then inheritance, then the rest; alphabetical within a bucket. */
 export function sortNeighbors(neighbors: Neighbor[]): Neighbor[] {
   return [...neighbors].sort((a, b) => {

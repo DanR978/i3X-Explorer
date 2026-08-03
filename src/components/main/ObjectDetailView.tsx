@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { ObjectInstance, LastKnownValue } from '../../api/types'
 import { getClient } from '../../api/client'
-import { useExplorerStore } from '../../stores/explorer'
+import { useExplorerStore, type DetailTab } from '../../stores/explorer'
 import { useSubscriptionsStore } from '../../stores/subscriptions'
 import { useSubscriptionTransport } from '../subscriptions/SubscriptionTransport'
 import { Breadcrumb } from './Breadcrumb'
@@ -14,7 +14,9 @@ import { Spinner } from '../common/Spinner'
 
 // Subscriptions are deliberately absent: they're global state, not a property of
 // whichever element happens to be selected, so they live in the bottom drawer.
-type TabId = 'overview' | 'relationships' | 'history' | 'subtree'
+// The tab itself lives in the navigation history (stores/explorer.ts): a tab is
+// a page, so switching one is a navigation stop and Back returns to it.
+type TabId = DetailTab
 
 const TAB_ORDER: TabId[] = ['overview', 'relationships', 'history', 'subtree']
 const TAB_LABELS: Record<TabId, string> = {
@@ -30,21 +32,11 @@ const TAB_LABELS: Record<TabId, string> = {
  * presentational consumers of that state.
  */
 export function ObjectDetailView({ object }: { object: ObjectInstance }) {
-  // Honor a pending tab deep-link (tree context menu "Open Relationships"
-  // etc.) from the first frame; the effect below covers the same-element case
-  // (no remount) and clears the request either way.
-  const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const pending = useExplorerStore.getState().pendingDetailTab
-    return pending && (TAB_ORDER as readonly string[]).includes(pending)
-      ? (pending as TabId)
-      : 'overview'
-  })
-  const pendingTab = useExplorerStore(s => s.pendingDetailTab)
-  useEffect(() => {
-    if (!pendingTab) return
-    if ((TAB_ORDER as readonly string[]).includes(pendingTab)) setActiveTab(pendingTab as TabId)
-    useExplorerStore.getState().requestDetailTab(null)
-  }, [pendingTab])
+  // The active tab is the history's, not local state: a deep-link (the tree's
+  // "Open Relationships") sets it as it selects, switching tabs pushes a stop,
+  // and Back/Forward land on the exact tab you left.
+  const activeTab = useExplorerStore(s => s.detailTab)
+  const setActiveTab = useExplorerStore(s => s.setDetailTab)
 
   const [value, setValue] = useState<LastKnownValue | null>(null)
   const [isLoadingValue, setIsLoadingValue] = useState(false)

@@ -1,6 +1,12 @@
-import { useExplorerStore, CHILD_PAGE_SIZE, type SelectedItem } from '../../stores/explorer'
+import {
+  useExplorerStore,
+  CHILD_PAGE_SIZE,
+  type DetailTab,
+  type SelectedItem,
+} from '../../stores/explorer'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 import type { MenuEntry } from '../common/ContextMenu'
+import { copyJson, copyText } from '../common/clipboard'
 import {
   CopyIcon,
   TargetIcon,
@@ -26,14 +32,6 @@ import {
 const EXPAND_ALL_BRANCH_CAP = 1000
 
 const ICON = 13
-
-function copyText(text: string) {
-  navigator.clipboard?.writeText(text).catch(() => {})
-}
-
-function copyJson(value: unknown) {
-  copyText(JSON.stringify(value, null, 2))
-}
 
 /** Iterative subtree survey: total objects and how many of them are branches. */
 function surveySubtree(
@@ -120,10 +118,13 @@ function selectRow(row: NodeRow) {
   selectItem({ type: row.nodeType, id: row.id, data: row.data } as SelectedItem)
 }
 
-/** Select the row and deep-link the detail view onto a specific tab. */
-function openRowTab(row: NodeRow, tab: string) {
-  useExplorerStore.getState().requestDetailTab(tab)
-  selectRow(row)
+/**
+ * Select the row and deep-link the detail view onto a specific tab. The tab is
+ * part of the history stop, so Back lands right back on it.
+ */
+function openRowTab(row: NodeRow, tab: DetailTab) {
+  const { selectItem } = useExplorerStore.getState()
+  selectItem({ type: row.nodeType, id: row.id, data: row.data } as SelectedItem, tab)
 }
 
 function objectEntries(row: NodeRow, revealInHierarchy: (elementId: string) => void): MenuEntry[] {

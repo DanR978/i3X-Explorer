@@ -19,6 +19,34 @@ export interface SelectedItem {
   data: Namespace | ObjectType | ObjectInstance
 }
 
+/** The tabs of the element detail view. Part of a history stop, see NavEntry. */
+export type DetailTab = 'overview' | 'relationships' | 'history' | 'subtree'
+
+/** A full-panel page that overlays the selection: the two of them, or neither. */
+export type MainPage = 'insights' | 'diff' | null
+
+/**
+ * One stop in the navigation history: everything the main panel needs to
+ * redraw exactly what you were looking at.
+ *
+ * The stack used to hold bare selections, so Back restored *an element* but not
+ * the page you were on: leaving the Subtree tab of an object and coming back
+ * landed on its Overview, and the Insights and diff pages weren't history stops
+ * at all (they were closed by any navigation and could not be returned to).
+ * A stop is therefore a triple, and every one of those is a real navigation:
+ * switching tabs pushes, opening a page pushes, closing it pushes.
+ */
+export interface NavEntry {
+  /** null is Home; with a page set it's the page opened from Home. */
+  item: SelectedItem | null
+  /** Which detail tab was open. Only meaningful when `item` is an object. */
+  tab: DetailTab
+  /** The full-panel page drawn over the selection, if any. */
+  page: MainPage
+}
+
+const HOME_ENTRY: NavEntry = { item: null, tab: 'overview', page: null }
+
 // Bounded so a long browsing session can't grow the stack without limit.
 const MAX_HISTORY = 50
 
@@ -126,17 +154,17 @@ interface ExplorerState {
   // Node id → how many children are currently revealed for parents whose child
   // list is paged (see CHILD_PAGE_SIZE). Absent = first page. Infinity = all.
   childPageLimits: Map<string, number>
-  // One-shot deep link into the detail view's tab strip ('relationships',
-  // 'subtree', 'history'), set by tree context-menu actions right before
-  // selectItem and consumed (cleared) by ObjectDetailView. A store field
-  // because the tab state itself is local to the detail view and re-keyed
-  // per element.
-  pendingDetailTab: string | null
   selectedItem: SelectedItem | null
-  // Visited selections, oldest first; null is the Home/overview screen, which is
-  // a real navigation stop, Back must land on it, not skip over it. The stack
-  // starts seeded with Home, and historyIndex is the cursor into it.
-  history: (SelectedItem | null)[]
+  // Which detail tab the current stop is on, and which full-panel page (if any)
+  // is drawn over it. Both mirror history[historyIndex]: the history is the
+  // source of truth for what the main panel shows, so Back/Forward restore the
+  // page you were on and not merely the element.
+  detailTab: DetailTab
+  activePage: MainPage
+  // Visited stops, oldest first; Home is a real one, Back must land on it rather
+  // than skip over it, so the stack starts seeded with it and historyIndex is
+  // the cursor into it.
+  history: NavEntry[]
   historyIndex: number
   isLoading: boolean
   searchQuery: string
@@ -169,8 +197,18 @@ interface ExplorerState {
   collapseNode: (nodeId: string) => void
   raiseChildLimit: (nodeId: string, by: number) => void
   showAllChildren: (nodeId: string) => void
-  requestDetailTab: (tab: string | null) => void
-  selectItem: (item: SelectedItem | null) => void
+  /**
+   * Open an item (or Home, with null). `tab` deep-links the detail view; when
+   * omitted a new element opens on Overview and re-selecting the element you
+   * are already on keeps the tab you are reading.
+   */
+  selectItem: (item: SelectedItem | null, tab?: DetailTab) => void
+  /** Switch the detail tab. A tab is a page, so this is a navigation stop. */
+  setDetailTab: (tab: DetailTab) => void
+  /** Show a full-panel page (insights / diff) over the current selection. */
+  openPage: (page: Exclude<MainPage, null>) => void
+  /** Leave the current page, back to whatever the selection points at. */
+  closePage: () => void
   goBack: () => void
   goForward: () => void
   setLoading: (loading: boolean) => void
@@ -183,6 +221,43 @@ interface ExplorerState {
   setRelationshipView: (view: RelationshipView) => void
   setSubtreeDepth: (depth: number) => void
   reset: () => void
+}
+
+/**
+ * Add a stop and move the cursor onto it. Navigating after going back discards
+ * the forward entries, like a browser. Everything the main panel reads
+ * (selectedItem / detailTab / activePage) is written from the entry, so the
+ * three can never drift out of sync with the stack.
+ */
+function pushEntry(entry: NavEntry) {
+  const { history, historyIndex } = useExplorerStore.getState()
+  const entries = history.slice(0, historyIndex + 1)
+  entries.push(entry)
+  const trimmed = entries.length > MAX_HISTORY ? entries.slice(-MAX_HISTORY) : entries
+  useExplorerStore.setState({
+    selectedItem: entry.item,
+    detailTab: entry.tab,
+    activePage: entry.page,
+    history: trimmed,
+    historyIndex: trimmed.length - 1,
+  })
+}
+
+/** Restore an existing stop without pushing (Back/Forward). */
+function gotoIndex(index: number) {
+  const { history, expandedNodes, objectIndex } = useExplorerStore.getState()
+  const target = history[index]
+  if (!target) return
+  useExplorerStore.setState({
+    selectedItem: target.item,
+    detailTab: target.tab,
+    activePage: target.page,
+    historyIndex: index,
+    // A null item is Home or a full-panel page: nothing to reveal in the tree.
+    expandedNodes: target.item
+      ? expandedPathTo(target.item, expandedNodes, objectIndex)
+      : expandedNodes,
+  })
 }
 
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
@@ -199,9 +274,10 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   searchIndex: new Map(),
   expandedNodes: new Set(),
   childPageLimits: new Map(),
-  pendingDetailTab: null,
   selectedItem: null,
-  history: [null],
+  detailTab: 'overview',
+  activePage: null,
+  history: [HOME_ENTRY],
   historyIndex: 0,
   isLoading: false,
   searchQuery: '',
@@ -326,49 +402,58 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ childPageLimits: limits })
   },
 
-  requestDetailTab: (tab) => set({ pendingDetailTab: tab }),
-
-  selectItem: (item) => {
+  selectItem: (item, tab) => {
     const { history, historyIndex } = get()
-    // Re-selecting the current stop (clicking an already-selected row, or Home
-    // while on Home) must not add a second entry, but still refreshes
-    // selectedItem with the newer data.
-    const current = historyIndex >= 0 ? history[historyIndex] : undefined
-    const sameStop = item === null ? current === null : current != null && current.id === item.id
-    if (historyIndex >= 0 && sameStop) {
+    const current = history[historyIndex] ?? HOME_ENTRY
+    const sameItem = item === null ? current.item === null : current.item?.id === item.id
+    // Re-selecting the element you're already on keeps the tab you're reading,
+    // so clicking its tree row again doesn't kick you back to Overview.
+    const nextTab = tab ?? (sameItem ? current.tab : 'overview')
+    // Re-selecting the current stop must not add a second entry, but still
+    // refreshes selectedItem with the newer data. Leaving a full-panel page is
+    // a navigation even when the selection underneath is unchanged.
+    if (sameItem && nextTab === current.tab && current.page === null) {
       set({ selectedItem: item })
       return
     }
-    // Navigating after going back discards the forward entries, like a browser.
-    const entries = history.slice(0, historyIndex + 1)
-    entries.push(item)
-    const trimmed = entries.length > MAX_HISTORY ? entries.slice(-MAX_HISTORY) : entries
-    set({ selectedItem: item, history: trimmed, historyIndex: trimmed.length - 1 })
+    pushEntry({ item, tab: nextTab, page: null })
   },
 
-  // goBack/goForward restore a selection directly rather than calling selectItem,
-  // which would push the entry back onto the stack and trap the cursor at the end.
+  setDetailTab: (tab) => {
+    const { history, historyIndex } = get()
+    const current = history[historyIndex] ?? HOME_ENTRY
+    if (current.tab === tab && current.page === null) return
+    pushEntry({ item: current.item, tab, page: null })
+  },
+
+  openPage: (page) => {
+    const { history, historyIndex } = get()
+    const current = history[historyIndex] ?? HOME_ENTRY
+    if (current.page === page) return
+    // The selection is carried along, so closing the page (or Back) returns to
+    // whatever you were looking at before it opened.
+    pushEntry({ item: current.item, tab: current.tab, page })
+  },
+
+  closePage: () => {
+    const { history, historyIndex } = get()
+    const current = history[historyIndex] ?? HOME_ENTRY
+    if (current.page === null) return
+    pushEntry({ item: current.item, tab: current.tab, page: null })
+  },
+
+  // goBack/goForward restore a stop directly rather than calling selectItem,
+  // which would push it back onto the stack and trap the cursor at the end.
   goBack: () => {
-    const { history, historyIndex, expandedNodes, objectIndex } = get()
+    const { historyIndex } = get()
     if (historyIndex <= 0) return
-    const target = history[historyIndex - 1]
-    set({
-      selectedItem: target,
-      historyIndex: historyIndex - 1,
-      // A null target is Home: nothing to reveal in the tree.
-      expandedNodes: target ? expandedPathTo(target, expandedNodes, objectIndex) : expandedNodes,
-    })
+    gotoIndex(historyIndex - 1)
   },
 
   goForward: () => {
-    const { history, historyIndex, expandedNodes, objectIndex } = get()
+    const { history, historyIndex } = get()
     if (historyIndex >= history.length - 1) return
-    const target = history[historyIndex + 1]
-    set({
-      selectedItem: target,
-      historyIndex: historyIndex + 1,
-      expandedNodes: target ? expandedPathTo(target, expandedNodes, objectIndex) : expandedNodes,
-    })
+    gotoIndex(historyIndex + 1)
   },
 
   setLoading: (loading) => set({ isLoading: loading }),
@@ -401,9 +486,10 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     searchIndex: new Map(),
     expandedNodes: new Set(),
     childPageLimits: new Map(),
-    pendingDetailTab: null,
     selectedItem: null,
-    history: [null],
+    detailTab: 'overview',
+    activePage: null,
+    history: [HOME_ENTRY],
     historyIndex: 0,
     isLoading: false,
     searchQuery: ''

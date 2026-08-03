@@ -17,7 +17,7 @@ export interface RelationshipGraphProps {
   error: string | null
   depth: number
   /** Element dropped onto the canvas: re-root here without navigating away. */
-  onFocusElement: (elementId: string) => void
+  onRootElement: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
   /** An element hovered outside the map (e.g. a list row), highlighted as if hovered here. */

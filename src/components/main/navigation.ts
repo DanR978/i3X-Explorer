@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useExplorerStore } from '../../stores/explorer'
+import { useExplorerStore, type DetailTab } from '../../stores/explorer'
 import type { ObjectInstance } from '../../api/types'
 
 /**
@@ -13,13 +13,14 @@ import type { ObjectInstance } from '../../api/types'
  *   showHome(): clear the selection, landing on the Home shell
  */
 export interface ElementNavigation {
-  selectElement: (elementId: string) => void
+  /** `tab` deep-links the detail view; omitted, a new element opens on Overview. */
+  selectElement: (elementId: string, tab?: DetailTab) => void
   /**
    * Navigate to an object we already hold in full, e.g. a related object just
    * fetched from POST /objects/related, which may not be in the store's flat
    * list. Unlike selectElement this never no-ops for want of a store entry.
    */
-  selectObject: (object: ObjectInstance) => void
+  selectObject: (object: ObjectInstance, tab?: DetailTab) => void
   /**
    * Open an object type. The overview's type bars use this: "1,204 Sensors" is
    * only useful if it's also the way to go look at them.
@@ -51,7 +52,7 @@ export function buildAncestorChain(
 }
 
 export function useElementNavigation(): ElementNavigation {
-  const selectElement = useCallback((elementId: string) => {
+  const selectElement = useCallback((elementId: string, tab?: DetailTab) => {
     // Store-only resolution. This PR is presentational: if the object isn't
     // already in the store we no-op rather than fetching it.
     const { objectIndex, expandedNodes, selectItem } = useExplorerStore.getState()
@@ -67,10 +68,10 @@ export function useElementNavigation(): ElementNavigation {
     }
 
     useExplorerStore.setState({ expandedNodes: expanded })
-    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target })
+    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
   }, [])
 
-  const selectObject = useCallback((object: ObjectInstance) => {
+  const selectObject = useCallback((object: ObjectInstance, tab?: DetailTab) => {
     // Prefer the store's copy (kept in sync by the poll); fall back to the object
     // we were handed. Ancestor expansion walks whatever the store knows.
     const { objectIndex, expandedNodes, selectItem } = useExplorerStore.getState()
@@ -83,7 +84,7 @@ export function useElementNavigation(): ElementNavigation {
     }
 
     useExplorerStore.setState({ expandedNodes: expanded })
-    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target })
+    selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
   }, [])
 
   const selectType = useCallback((typeId: string) => {

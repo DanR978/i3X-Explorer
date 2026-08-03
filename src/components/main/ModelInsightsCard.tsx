@@ -1,4 +1,4 @@
-import { useInsightsStore } from '../../stores/insights'
+import { useExplorerStore } from '../../stores/explorer'
 import { InsightIcon } from '../common/icons'
 import { Card } from './primitives'
 import { InfoHint } from './InfoHint'
@@ -20,7 +20,9 @@ import { deviationNorm, type InsightsReport } from './insightsReport'
 const TOP_FINDINGS = 3
 
 export function ModelInsightsCard({ report }: { report: InsightsReport }) {
-  const openView = useInsightsStore(s => s.openView)
+  const openPage = useExplorerStore(s => s.openPage)
+  // A history stop of its own, so Back from the page returns here.
+  const openView = () => openPage('insights')
   const { summary } = report
 
   const healthParts = [

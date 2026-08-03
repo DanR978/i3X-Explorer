@@ -39,7 +39,7 @@ export function SubtreeTab({ object }: { object: ObjectInstance }) {
       className="flex h-full flex-col min-h-0"
     >
       <div className="flex-1 min-h-0">
-        {/* No list beside it and no drag source in this tab, so onFocusElement is
+        {/* No list beside it and no drag source in this tab, so onRootElement is
             omitted: navigation (click) is the only way onward, which is right for
             a tab whose root is always the selected element. */}
         <TreeGraph

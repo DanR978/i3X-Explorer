@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useExplorerStore } from '../../stores/explorer'
-import { useInsightsStore } from '../../stores/insights'
 import { getInsightsReport, type InsightsSummary } from '../main/insightsReport'
 import { InfoHint } from '../main/InfoHint'
 import { CloseIcon } from '../common/icons'
@@ -20,8 +19,9 @@ import { AnomaliesSection } from './AnomaliesSection'
  * and what can't be trusted (data quality).
  *
  * The report comes from the getInsightsReport memo, so rendering this page
- * after the Home card never recomputes; any navigation closes the page
- * (stores/insights.ts).
+ * after the Home card never recomputes. The page is a stop in the navigation
+ * history (`activePage` in stores/explorer.ts): navigating away leaves it, and
+ * Back comes straight back to it.
  */
 
 /** Section anchors, shared by the tiles and the section wrappers. */
@@ -37,7 +37,7 @@ const SECTION_IDS = {
 const FLASH_MS = 1400
 
 export function InsightsView() {
-  const closeView = useInsightsStore(s => s.closeView)
+  const closeView = useExplorerStore(s => s.closePage)
   const allObjects = useExplorerStore(s => s.allObjects)
   const objectTypes = useExplorerStore(s => s.objectTypes)
   const namespaceCount = useExplorerStore(s => s.namespaces.length)

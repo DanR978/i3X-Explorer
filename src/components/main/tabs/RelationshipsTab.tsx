@@ -31,6 +31,11 @@ const VIEW_OPTIONS: { value: RelationshipView; label: string }[] = [
  * Dragging a row from the list onto the tree re-roots it on that element, so you
  * can follow a chain outward without leaving the element you're inspecting. The
  * list follows the new root too, for the same reason.
+ *
+ * Focusing is the cheaper cousin of that and is kept separate on purpose: it
+ * moves the viewport onto a row's branch and lights it, leaving the walk, the
+ * root and the selection exactly as they were. Re-rooting costs a round trip
+ * per hop and redraws both panes; focusing costs nothing and redraws nothing.
  */
 export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const objectIndex = useExplorerStore(state => state.objectIndex)
@@ -100,10 +105,23 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
   const handleLocate = useCallback((elementId: string) => {
     setSpotlightId(elementId)
     locateToken.current += 1
-    setLocate({ elementId, token: locateToken.current })
+    setLocate({ elementId, token: locateToken.current, scope: 'node' })
   }, [])
 
-  const focusObject = useCallback(
+  /**
+   * The list's focus action. A pure view request: the map frames this element
+   * with its children and dims the rest. No walk, no re-root, no navigation, so
+   * the drawing you were reading stays the drawing you are reading.
+   */
+  const focusOnMap = useCallback((target: ObjectInstance) => {
+    // A held subtree focus supersedes any search spotlight.
+    setSpotlightId(null)
+    locateToken.current += 1
+    setLocate({ elementId: target.elementId, token: locateToken.current, scope: 'subtree' })
+  }, [])
+
+  /** Re-root the walk here: the drag-and-drop gesture, and the menu's version of it. */
+  const rootObject = useCallback(
     (target: ObjectInstance) =>
       setFocused(target.elementId === object.elementId ? null : target),
     [object.elementId]
@@ -111,10 +129,10 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
 
   // A drop only carries the elementId across the DOM, so it is resolved against
   // the catalog. A related object the store has never seen can't be rooted this
-  // way. The target button on each row hands over the whole object and always can.
-  const focusElementId = (elementId: string) => {
+  // way. The menu's "Root the map here" hands over the whole object and always can.
+  const rootElementId = (elementId: string) => {
     const target = objectIndex.get(elementId)
-    if (target) focusObject(target)
+    if (target) rootObject(target)
   }
 
   return (
@@ -164,7 +182,8 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
             error={error}
             depth={depth}
             onSelect={selectObject}
-            onFocus={focusObject}
+            onFocus={focusOnMap}
+            onRoot={rootObject}
             onHover={setHoveredId}
             filter={query}
           />
@@ -177,7 +196,7 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
             isLoading={isLoading}
             error={error}
             depth={depth}
-            onFocusElement={focusElementId}
+            onRootElement={rootElementId}
             onSelectElement={selectElement}
             externalHoverId={hoveredId ?? spotlightId}
             locate={locate}
@@ -186,9 +205,9 @@ export function RelationshipsTab({ object }: { object: ObjectInstance }) {
       </div>
 
       <p className="mt-3 shrink-0 text-[11.5px] text-i3x-text-muted">
-        Hover a row to spotlight it on the map · drag a row onto the map to focus it there · search
-        to filter the list and zoom to a match · drag to pan · scroll to zoom · click a node to
-        open it
+        Hover a row to spotlight it on the map · use a row's focus button to zoom to it and its
+        children · drag a row onto the map to root it there · right-click a row for more · drag to
+        pan · scroll to zoom · click a node to open it
       </p>
 
       {/* The key sits below the split, not inside the drawing, so it can never

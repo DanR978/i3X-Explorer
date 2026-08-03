@@ -2,16 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ObjectInstance } from '../../api/types'
 import { BUCKET_COLOR, dashArray, nodeFill } from './relationshipColors'
 import { COMPOSITION_DASH } from './relationshipColors'
-import type { EgoGraph } from './egoGraph'
+import { descendantIds, type EgoGraph } from './egoGraph'
 import { COLUMN_WIDTH, layoutTree, MAX_LABEL_CHARS, type PositionedNode } from './treeLayout'
 import { ELEMENT_DRAG_TYPE } from './dragType'
 import { FrameIcon } from '../common/icons'
-import { Spinner } from '../common/Spinner'
 import { I3xLoader } from '../common/I3xLoader'
+import { FocusBadge } from './FocusBadge'
 import type { LocateRequest } from './locator'
 
 const MIN_SCALE = 0.2
 const MAX_SCALE = 40
+
+/** Room a framed branch leaves around itself, as a fraction of the pane. */
+const FOCUS_MARGIN = 0.86
+/** Diagram units a node's label takes to its right; framing has to include it. */
+const LABEL_SPAN = 190
 
 // Label + node sizes live in diagram units and scale with the map. The tree gives
 // every node its own row, so they never collide however the map is scaled.
@@ -46,7 +51,7 @@ export interface TreeGraphProps {
    * Element dropped onto the canvas: re-root here without navigating away.
    * Omit to disable dropping (the Subtree tab has no drag source).
    */
-  onFocusElement?: (elementId: string) => void
+  onRootElement?: (elementId: string) => void
   /** Clicking a node opens it in the detail view. */
   onSelectElement: (elementId: string) => void
   /**
@@ -56,8 +61,11 @@ export interface TreeGraphProps {
    */
   externalHoverId?: string | null
   /**
-   * A search pick: centre the view on this node and zoom in. Ignored if the node
-   * isn't drawn; answered late if it arrives while the walk is still loading.
+   * A view request: centre on a node (`scope: 'node'`, a search pick) or frame
+   * it with everything under it and hold that branch lit (`scope: 'subtree'`,
+   * the list's focus button). Never re-roots or re-walks, it only moves the
+   * viewport. Ignored if the node isn't drawn; answered late if it arrives while
+   * the walk is still loading.
    */
   locate?: LocateRequest | null
 }
@@ -79,7 +87,7 @@ export function TreeGraph({
   error,
   depth,
   descendantsOnly = false,
-  onFocusElement,
+  onRootElement,
   onSelectElement,
   externalHoverId,
   locate,
@@ -90,6 +98,9 @@ export function TreeGraph({
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [isDropTarget, setIsDropTarget] = useState(false)
+  // The branch a subtree focus is holding lit. View state, not walk state: the
+  // graph is untouched, the rest of it is simply dimmed around this one.
+  const [focusId, setFocusId] = useState<string | null>(null)
 
   const layout = useMemo(() => (graph ? layoutTree(graph) : null), [graph])
 
@@ -109,9 +120,12 @@ export function TreeGraph({
     [layout]
   )
 
-  // A new root is a new picture; keep the old pan/zoom and it would open off-screen.
+  // A new root is a new picture; keep the old pan/zoom and it would open
+  // off-screen, and a focus held over from the old one would light a branch
+  // that may not even be drawn any more.
   useEffect(() => {
     setTransform({ scale: 1, x: 0, y: 0 })
+    setFocusId(null)
   }, [root.elementId])
 
   const toUserSpace = useCallback((clientX: number, clientY: number): [number, number] => {
@@ -176,7 +190,7 @@ export function TreeGraph({
   }
 
   const carriesElement = (event: React.DragEvent) =>
-    onFocusElement != null && event.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)
+    onRootElement != null && event.dataTransfer.types.includes(ELEMENT_DRAG_TYPE)
 
   const handleDragOver = (event: React.DragEvent) => {
     if (!carriesElement(event)) return
@@ -191,7 +205,7 @@ export function TreeGraph({
     event.preventDefault()
     setIsDropTarget(false)
     const elementId = event.dataTransfer.getData(ELEMENT_DRAG_TYPE)
-    if (elementId) onFocusElement?.(elementId)
+    if (elementId) onRootElement?.(elementId)
   }
 
   // A row hovered in the list highlights here just like a map hover, but an actual
@@ -202,8 +216,22 @@ export function TreeGraph({
 
   const hovered = activeHoverId ? nodeById.get(activeHoverId) : null
   const hoveredNeighbors = activeHoverId ? neighbors.get(activeHoverId) : undefined
+
+  // The lit branch. Re-derived from the current layout, so a deeper walk grows
+  // the focus with the drawing, and a focus whose node is no longer drawn is
+  // dropped rather than dimming everything with nothing lit.
+  const focusSet = useMemo(() => {
+    if (!layout || !focusId || !nodeById.has(focusId)) return null
+    return descendantIds(layout.nodes, focusId)
+  }, [layout, focusId, nodeById])
+  const focusNode = focusSet ? nodeById.get(focusId!) : null
+
+  // Hovering is the live gesture, so it takes over the dimming while it lasts;
+  // the focus comes back the moment the cursor leaves.
   const dimmed = (id: string) =>
-    activeHoverId !== null && id !== activeHoverId && !hoveredNeighbors?.has(id)
+    activeHoverId !== null
+      ? id !== activeHoverId && !hoveredNeighbors?.has(id)
+      : focusSet !== null && !focusSet.has(id)
 
   // The initial view: the content box, clamped so a small tree isn't blown up and a
   // huge one isn't shrunk to nothing (you scroll instead). Centred on the content.
@@ -218,31 +246,68 @@ export function TreeGraph({
   }, [layout])
   const { w: viewW, h: viewH, x: viewX, y: viewY } = view
 
-  // Locator: a search pick centres the view on that node and zooms in enough to
-  // read its neighborhood (a couple of columns). The token ref means a request is
-  // answered exactly once, but late, if it lands while the walk is still loading,
-  // since nodeById refreshing re-runs the effect with the request still unhandled.
-  // The ref starts at the mount-time token so a remount (the Tree/Rings toggle)
-  // doesn't re-answer an old request; a pick that isn't drawn is answered late
-  // while the walk is still loading, but once the walk settles without it, it's
-  // marked handled so a later deeper walk can't replay a long-forgotten jump.
+  // Locator. A 'node' request (a search pick) centres the view on that node and
+  // zooms in enough to read its neighborhood; a 'subtree' request frames the
+  // whole branch, whatever its size, and lights it. Neither touches the walk.
+  // The token ref means a request is answered exactly once, but late, if it
+  // lands while the walk is still loading, since nodeById refreshing re-runs the
+  // effect with the request still unhandled. The ref starts at the mount-time
+  // token so a remount (the Tree/Rings toggle) doesn't re-answer an old request;
+  // a pick that isn't drawn is answered late while the walk is still loading,
+  // but once the walk settles without it, it's marked handled so a later deeper
+  // walk can't replay a long-forgotten jump.
   const handledLocateToken = useRef(locate?.token ?? 0)
   useEffect(() => {
     if (!locate || locate.token === handledLocateToken.current) return
     const node = nodeById.get(locate.elementId)
-    if (!node) {
+    if (!node || !layout) {
       if (!isLoading) handledLocateToken.current = locate.token
       return
     }
     handledLocateToken.current = locate.token
-    const scale = Math.min(MAX_SCALE, Math.max(1.6, view.w / 900))
+
+    if (locate.scope !== 'subtree') {
+      setFocusId(null)
+      const scale = Math.min(MAX_SCALE, Math.max(1.6, view.w / 900))
+      setTransform({
+        scale,
+        // Bias half a label to the right of the node so the name is centred too.
+        x: view.x + view.w / 2 - (node.x + 60) * scale,
+        y: view.y + view.h / 2 - node.y * scale,
+      })
+      return
+    }
+
+    // Frame the branch: its own bounding box (plus the room its labels need)
+    // scaled to fill the pane. A single leaf has no extent of its own, so the
+    // box is floored at one column, otherwise the fit would divide by ~0 and
+    // slam into the zoom ceiling.
+    const ids = descendantIds(layout.nodes, node.object.elementId)
+    let minX = node.x
+    let maxX = node.x
+    let minY = node.y
+    let maxY = node.y
+    for (const drawn of layout.nodes) {
+      if (!ids.has(drawn.object.elementId)) continue
+      if (drawn.x < minX) minX = drawn.x
+      if (drawn.x > maxX) maxX = drawn.x
+      if (drawn.y < minY) minY = drawn.y
+      if (drawn.y > maxY) maxY = drawn.y
+    }
+    maxX += LABEL_SPAN
+    const boxW = Math.max(maxX - minX, COLUMN_WIDTH)
+    const boxH = Math.max(maxY - minY, 120)
+    const scale = Math.max(
+      MIN_SCALE,
+      Math.min(MAX_SCALE, (Math.min(view.w / boxW, view.h / boxH) * FOCUS_MARGIN))
+    )
+    setFocusId(node.object.elementId)
     setTransform({
       scale,
-      // Bias half a label to the right of the node so the name is centred too.
-      x: view.x + view.w / 2 - (node.x + 60) * scale,
-      y: view.y + view.h / 2 - node.y * scale,
+      x: view.x + view.w / 2 - ((minX + maxX) / 2) * scale,
+      y: view.y + view.h / 2 - ((minY + maxY) / 2) * scale,
     })
-  }, [locate, nodeById, view, isLoading])
+  }, [locate, nodeById, layout, view, isLoading])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -280,9 +345,12 @@ export function TreeGraph({
               ref={svgRef}
               viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
               preserveAspectRatio="xMidYMid meet"
-              className={`w-full h-full select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} ${
-                isLoading ? 'opacity-50' : ''
-              }`}
+              // While a walk runs the old drawing is grayed right out, colour
+              // and all, so it reads as the stale thing it is and the loader
+              // isn't competing with a live-looking map underneath it.
+              className={`w-full h-full select-none transition-opacity motion-reduce:transition-none ${
+                isPanning ? 'cursor-grabbing' : 'cursor-grab'
+              } ${isLoading ? 'grayscale opacity-10' : ''}`}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={endPan}
@@ -346,7 +414,10 @@ export function TreeGraph({
                     key={node.object.elementId}
                     node={node}
                     dimmed={dimmed(node.object.elementId)}
-                    emphasized={activeHoverId === node.object.elementId}
+                    emphasized={
+                      activeHoverId === node.object.elementId ||
+                      (activeHoverId === null && focusId === node.object.elementId)
+                    }
                     onHover={setHoverId}
                     onSelect={onSelectElement}
                   />
@@ -354,6 +425,19 @@ export function TreeGraph({
               </g>
             </svg>
           )
+        )}
+
+        {/* The walk is in flight: say so, over the grayed-out old drawing (the
+            svg's own class does the graying, see above). Only showing this on
+            the first walk meant a depth change (or any re-walk) sat there
+            looking finished while a round trip per hop was still running. */}
+        {!error && isLoading && layout && (
+          <div className="absolute inset-0 grid place-items-center pointer-events-none">
+            <div className="text-center">
+              <I3xLoader size={64} className="mx-auto" />
+              <p className="mt-3 text-xs text-i3x-text-muted">Walking relationships…</p>
+            </div>
+          </div>
         )}
 
         {layout && layout.nodes.length > 1 && (
@@ -366,11 +450,22 @@ export function TreeGraph({
             </GraphButton>
             <GraphButton
               label="Reset view"
-              onClick={() => setTransform({ scale: 1, x: 0, y: 0 })}
+              onClick={() => {
+                setTransform({ scale: 1, x: 0, y: 0 })
+                setFocusId(null)
+              }}
             >
               <FrameIcon size={13} />
             </GraphButton>
           </div>
+        )}
+
+        {!error && focusNode && focusSet && (
+          <FocusBadge
+            name={focusNode.object.displayName}
+            count={focusSet.size}
+            onClear={() => setFocusId(null)}
+          />
         )}
 
         {hovered && (
@@ -396,13 +491,6 @@ export function TreeGraph({
           </div>
         )}
       </div>
-
-      {isLoading && graph && (
-        <p className="mt-2 shrink-0 flex items-center gap-1.5 text-[11.5px] text-i3x-text-muted">
-          <Spinner size={11} />
-          Expanding…
-        </p>
-      )}
     </div>
   )
 }

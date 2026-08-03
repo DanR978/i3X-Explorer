@@ -1,6 +1,4 @@
 import { useExplorerStore } from '../../stores/explorer'
-import { useDiffStore } from '../../stores/diff'
-import { useInsightsStore } from '../../stores/insights'
 import { NamespaceDetail } from '../details/NamespaceDetail'
 import { ObjectTypeDetail } from '../details/ObjectTypeDetail'
 import { DiffView } from '../diff/DiffView'
@@ -11,28 +9,28 @@ import { SimpleDetailView } from '../main/SimpleDetailView'
 import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
 
 /**
- * The main content panel. Top-level states, driven purely by store state:
+ * The main content panel. Top-level states, read straight off the current
+ * navigation stop (`stores/explorer.ts`, one entry = item + tab + page):
  *
- *   diff view open     → snapshot diff (stores/diff.ts, any navigation closes it)
- *   insights view open → model insights (stores/insights.ts, same lifecycle)
- *   nothing selected   → Home shell (model overview)
- *   object selected    → tabbed element detail
+ *   page 'diff'      → snapshot diff
+ *   page 'insights'  → model insights
+ *   nothing selected → Home shell (model overview)
+ *   object selected  → tabbed element detail
  *
- * The two full-panel views are mutually exclusive, each store closes the
- * other on open, so the order of the first two branches is belt-and-braces.
- * Namespace and object-type selections reuse the same header frame without
- * tabs. The panel never imports the tree; both sides share `selectItem`.
+ * The two full-panel views are mutually exclusive for free: one `page` field
+ * can only name one of them, and navigating anywhere pushes a stop with no
+ * page. Namespace and object-type selections reuse the same header frame
+ * without tabs. The panel never imports the tree; both sides share `selectItem`.
  */
 export function MainPanel() {
   const selectedItem = useExplorerStore(state => state.selectedItem)
-  const diffOpen = useDiffStore(state => state.viewOpen)
-  const insightsOpen = useInsightsStore(state => state.viewOpen)
+  const page = useExplorerStore(state => state.activePage)
 
-  if (diffOpen) {
+  if (page === 'diff') {
     return <DiffView />
   }
 
-  if (insightsOpen) {
+  if (page === 'insights') {
     return <InsightsView />
   }
 
