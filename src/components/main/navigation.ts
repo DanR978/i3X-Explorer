@@ -29,6 +29,16 @@ export interface ElementNavigation {
   showHome: () => void
 }
 
+/**
+ * Both element navigators also force the sidebar's third folder back to the
+ * hierarchy walk. Revealing means "show me where this lives", and the hierarchy
+ * is the only walk that can always answer for an arbitrary object: a relationship
+ * walk places an object at however many paths reach it, possibly none that are
+ * currently open. Reaching the tree and quietly failing to reveal anything is
+ * worse than switching, and the tree's own rows never come through here, clicking
+ * a relationship row calls selectItem directly and stays put.
+ */
+
 /** Walk `parentId` up to the root. Returns ancestors root-first, excluding `object`. */
 export function buildAncestorChain(
   object: ObjectInstance,
@@ -67,7 +77,7 @@ export function useElementNavigation(): ElementNavigation {
       expanded.add(`hier:${ancestor.elementId}`)
     }
 
-    useExplorerStore.setState({ expandedNodes: expanded })
+    useExplorerStore.setState({ expandedNodes: expanded, treeStructure: 'hierarchy' })
     selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
   }, [])
 
@@ -83,7 +93,7 @@ export function useElementNavigation(): ElementNavigation {
       expanded.add(`hier:${ancestor.elementId}`)
     }
 
-    useExplorerStore.setState({ expandedNodes: expanded })
+    useExplorerStore.setState({ expandedNodes: expanded, treeStructure: 'hierarchy' })
     selectItem({ type: 'object', id: `hier:${target.elementId}`, data: target }, tab)
   }, [])
 

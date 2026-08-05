@@ -131,18 +131,27 @@ export function SegmentedControl<T extends string>({
   options,
   onChange,
   label,
+  fill = false,
 }: {
   value: T
   options: { value: T; label: string }[]
   onChange: (value: T) => void
   /** Accessible group name, not rendered. */
   label: string
+  /**
+   * Stretch to the container and split it evenly between the options. For
+   * narrow containers (the sidebar, which resizes down to 224px), where the
+   * intrinsic width would overflow rather than wrap.
+   */
+  fill?: boolean
 }) {
   return (
     <div
       role="group"
       aria-label={label}
-      className="flex items-center gap-0.5 bg-i3x-bg border border-i3x-border rounded-lg p-0.5"
+      className={`flex items-center gap-0.5 bg-i3x-bg border border-i3x-border rounded-lg p-0.5 ${
+        fill ? 'w-full' : ''
+      }`}
     >
       {options.map(option => {
         const active = option.value === value
@@ -152,7 +161,9 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(option.value)}
-            className={`px-3 py-1 text-[11.5px] rounded-md transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary ${
+            className={`py-1 text-[11.5px] rounded-md transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-i3x-primary ${
+              fill ? 'flex-1 min-w-0 truncate px-1' : 'px-3'
+            } ${
               active
                 ? 'bg-i3x-surface text-i3x-primary font-medium shadow-sm'
                 : 'text-i3x-text-muted hover:text-i3x-text'

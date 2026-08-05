@@ -1,6 +1,24 @@
 import { getClient, type I3XClient } from '../../api/client'
-import { useExplorerStore, CHILD_PAGE_SIZE, CHILD_PAGE_SLACK, type SelectedItem } from '../../stores/explorer'
-import type { Namespace, ObjectType, ObjectInstance } from '../../api/types'
+import {
+  useExplorerStore,
+  CHILD_PAGE_SIZE,
+  CHILD_PAGE_SLACK,
+  REL_PREFIX,
+  type SelectedItem,
+  type TreeStructure,
+} from '../../stores/explorer'
+import type { Namespace, ObjectType, ObjectInstance, RelationshipType } from '../../api/types'
+import { directNeighbors, type Neighbor } from '../graph/egoGraph'
+import type { RelationshipBucket } from '../graph/relationshipColors'
+import {
+  groupNeighbors,
+  planGroupExpansion,
+  relAncestorRowIds,
+  relChildPath,
+  relGroupRowId,
+  relPathIds,
+  relRowId,
+} from './relationshipTree'
 
 // Special folder IDs
 export const NAMESPACES_FOLDER_ID = 'folder:namespaces'
@@ -41,6 +59,38 @@ export async function resolveCompositionFlags(client: I3XClient, loaded: ObjectI
     console.error('Failed to resolve composition flags via /objects/related:', err)
   }
   if (additions.size > 0) mergeCompositionFlags(additions)
+}
+
+/**
+ * The relationship-walk counterpart to resolveCompositionFlags: ask the server,
+ * in one batch, who each of these objects is actually connected to, and cache
+ * the neighbour ids so their chevrons and counts stop being guesses.
+ *
+ * Called for the rows currently on screen, never for the whole catalog: a single
+ * batch over tens of thousands of objects is slow and can fail outright, and the
+ * answer is only needed for what someone is looking at.
+ */
+export async function resolveRelationshipFlags(client: I3XClient, loaded: ObjectInstance[]): Promise<void> {
+  if (loaded.length === 0) return
+  const { relatedNeighborIds, objectIndex, childrenByParent, mergeRelatedNeighborIds } = useExplorerStore.getState()
+  const toResolve: ObjectInstance[] = []
+  for (const obj of loaded) {
+    if (!relatedNeighborIds.has(obj.elementId)) toResolve.push(obj)
+  }
+  if (toResolve.length === 0) return
+  try {
+    const related = await client.getRelatedObjectsBatch(toResolve.map(o => o.elementId))
+    if (related.size === 0) return
+    const store = { objectIndex, childrenByParent }
+    mergeRelatedNeighborIds(
+      toResolve.map(obj => [
+        obj.elementId,
+        directNeighbors(obj, related.get(obj.elementId) ?? [], store).map(n => n.object.elementId),
+      ] as [string, string[]])
+    )
+  } catch (err) {
+    console.error('Failed to resolve relationships via /objects/related:', err)
+  }
 }
 
 // Coalesce + throttle full "all objects" refetches. Expanding a hierarchy node
@@ -114,9 +164,9 @@ export function isScalarSchemaType(raw: unknown): boolean {
 export interface NodeRow {
   kind: 'node'
   key: string
-  /** Expansion/selection id: 'folder:…', 'ns:…', 'type:…', 'obj:…', 'hier:…'. */
+  /** Expansion/selection id: 'folder:…', 'ns:…', 'type:…', 'obj:…', 'hier:…', 'rel:…', 'relgrp:…'. */
   id: string
-  nodeType: 'folder' | 'namespace' | 'objectType' | 'object'
+  nodeType: 'folder' | 'namespace' | 'objectType' | 'object' | 'relGroup'
   label: string
   data?: Namespace | ObjectType | ObjectInstance
   depth: number
@@ -125,6 +175,8 @@ export interface NodeRow {
   count?: number
   /** True when the count reflects filter matches rather than totals. */
   filtered?: boolean
+  /** Relationship bucket, on 'relGroup' rows: colors the group's marker. */
+  bucket?: RelationshipBucket
   /** Index of the parent row within the flattened array; -1 at the root. */
   parentIndex: number
 }
@@ -177,6 +229,14 @@ export interface TreeBuildInput {
   objectIndex: Map<string, ObjectInstance>
   /** elementId → pre-lowercased filter blob (store-maintained). */
   searchIndex: Map<string, string>
+  /** How the third folder nests: by parentId, or by every reported relationship. */
+  treeStructure: TreeStructure
+  /** elementId → raw /objects/related payload, fetched on expand. */
+  relatedObjects: Map<string, ObjectInstance[]>
+  /** elementId → its neighbours' ids, resolved for on-screen rows (chevrons). */
+  relatedNeighborIds: Map<string, string[]>
+  /** Declared relationship types, for group labels. */
+  relationshipTypeIndex: Map<string, RelationshipType>
 }
 
 /**
@@ -190,6 +250,7 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
     namespaces, objectTypes, objectsByType, allObjects, hierarchicalRoots,
     childObjects, childrenByParent, compositionCache, expandedNodes,
     childPageLimits, filterText, selectedId, objectIndex, searchIndex,
+    treeStructure, relatedObjects, relatedNeighborIds, relationshipTypeIndex,
   } = input
 
   const rows: TreeRow[] = []
@@ -253,7 +314,14 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
     mustShowIds.add(selectedId)
     const prefix = selectedId.startsWith('hier:') ? 'hier:'
       : selectedId.startsWith('obj:') ? 'obj:' : null
-    if (prefix) {
+    if (selectedId.startsWith(REL_PREFIX)) {
+      // A relationship row's ancestors are the prefixes of its path, so no
+      // parentId walk is needed (and none would be right: the path may have
+      // arrived through "feeds" edges that parentId knows nothing about).
+      for (const id of relAncestorRowIds(selectedId.slice(REL_PREFIX.length))) {
+        mustShowIds.add(id)
+      }
+    } else if (prefix) {
       // Every ancestor up the parentId chain, so a deep selection can't have
       // an ancestor paged out from under it either.
       const visited = new Set<string>()
@@ -346,6 +414,120 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
     for (let i = 0; i < limit; i++) walkHier(visible[i], depth + 1, childAncestors, key, index)
     if (limit < visible.length) pushMore(id, key, depth + 1, limit, visible.length, index)
     emitForced(visible, limit, c => `hier:${c.elementId}`, c => walkHier(c, depth + 1, childAncestors, key, index))
+  }
+
+  // ── Relationship walk ('rel:' ids): every edge the server reports, grouped
+  // by relationship type. Unlike the two walks above, this one is a graph
+  // flattened into a tree, so it carries a path (its identity, and the set of
+  // objects its children are filtered against) and a hop count separate from the
+  // row depth, since group rows consume depth without being a hop.
+  const relStore = { objectIndex, childrenByParent }
+
+  const walkRel = (
+    obj: ObjectInstance,
+    depth: number,
+    hops: number,
+    /** Every element on this branch, including `obj`. Its children exclude these. */
+    branch: Set<string>,
+    /** Full path INCLUDING this object; also its row id. */
+    path: string,
+    parentIndex: number
+  ) => {
+    const id = relRowId(path)
+    const key = `rel/${path}`
+    const index = rows.length
+    const exhausted = hops >= MAX_TREE_DEPTH
+
+    // Neighbours are only known once the row has been expanded and fetched.
+    // Until then the chevron is optimistic (corrected within a frame or two by
+    // the on-screen resolver), because a missing chevron hides a real
+    // relationship, while a spurious one costs a click.
+    const expanded = isExpanded(id)
+    const related = exhausted || !expanded ? undefined : relatedObjects.get(obj.elementId)
+
+    const groups = related
+      ? groupNeighbors(
+          directNeighbors(obj, related, relStore).filter(n =>
+            !branch.has(n.object.elementId) && (!filterText || objMatches(n.object))
+          ),
+          relationshipTypeIndex
+        )
+      : null
+
+    let shown: number | undefined
+    if (groups) {
+      shown = 0
+      for (const group of groups) shown += group.neighbors.length
+    } else if (!exhausted) {
+      const known = relatedNeighborIds.get(obj.elementId)
+      if (known) shown = known.reduce((n, nid) => (branch.has(nid) ? n : n + 1), 0)
+    }
+
+    rows.push({
+      kind: 'node', key, id, nodeType: 'object', label: getObjectLabel(obj),
+      data: obj, depth,
+      hasChildren: exhausted ? false : shown === undefined || shown > 0,
+      isExpanded: expanded,
+      count: shown && shown > 0 ? shown : undefined,
+      parentIndex,
+    })
+    if (exhausted) {
+      pushMarker(`${key}#stop`, depth + 1, '(max depth reached)', index)
+      return
+    }
+    if (!groups || shown === 0) return
+
+    /** Emit one group's neighbours as rows, paged under `pageKey`. */
+    const emitMembers = (
+      neighbors: Neighbor[],
+      childDepth: number,
+      pageKey: string,
+      ownerIndex: number
+    ) => {
+      const limit = pageLimit(pageKey, neighbors.length)
+      const emit = (neighbor: Neighbor) => {
+        const childPath = relChildPath(path, neighbor.object.elementId)
+        const childBranch = new Set(branch)
+        childBranch.add(neighbor.object.elementId)
+        walkRel(neighbor.object, childDepth, hops + 1, childBranch, childPath, ownerIndex)
+      }
+      for (let i = 0; i < limit; i++) emit(neighbors[i])
+      if (limit < neighbors.length) {
+        pushMore(pageKey, `${key}#${pageKey}`, childDepth, limit, neighbors.length, ownerIndex)
+      }
+      emitForced(neighbors, limit,
+        n => relRowId(relChildPath(path, n.object.elementId)), emit)
+    }
+
+    // A node with a single relationship kind nests its neighbours directly: a
+    // header that says "Has component 4" above the only four rows there are is
+    // an indent level charged for nothing. Past one kind the headers earn their
+    // row, they are what keeps two "feeds" edges reachable under 600 components.
+    if (groups.length === 1) {
+      emitMembers(groups[0].neighbors, depth + 1, id, index)
+      return
+    }
+
+    for (const group of groups) {
+      const groupId = relGroupRowId(path, group.key)
+      // Force a group open when the selection lies inside it: Back/Forward
+      // restores the object path, but the group rows in between are not
+      // derivable from it (see expandedPathTo).
+      const holdsSelection = mustShowIds.size > 0 && group.neighbors.some(n =>
+        mustShowIds.has(relRowId(relChildPath(path, n.object.elementId)))
+      )
+      const groupExpanded = isExpanded(groupId) || holdsSelection
+      const groupIndex = rows.length
+      rows.push({
+        kind: 'node', key: `${key}#${group.key}`, id: groupId, nodeType: 'relGroup',
+        label: group.label, depth: depth + 1,
+        hasChildren: true, isExpanded: groupExpanded,
+        count: group.neighbors.length,
+        bucket: group.bucket,
+        parentIndex: index,
+      })
+      if (groupExpanded) emitMembers(group.neighbors, depth + 2, groupId, groupIndex)
+    }
   }
 
   // ── 1. Namespaces folder ──────────────────────────────────────────────────
@@ -468,7 +650,11 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
     }
   }
 
-  // ── 3. Hierarchy folder (parent/child structure) ──────────────────────────
+  // ── 3. Structure folder: the same roots, nested two different ways ────────
+  // 'hierarchy' walks parentId (pure store data, no requests); 'relationships'
+  // walks every edge the server reports, one fetch per expanded node. Same
+  // roots either way, so the toggle never moves the top level.
+  const asRelationships = treeStructure === 'relationships'
   const visibleRoots = filterText
     ? hierarchicalRoots.filter(obj => hierarchyVisibleIds.has(obj.elementId))
     : hierarchicalRoots
@@ -476,22 +662,27 @@ export function buildTreeRows(input: TreeBuildInput): TreeRow[] {
   const hierIndex = rows.length
   rows.push({
     kind: 'node', key: HIERARCHICAL_FOLDER_ID, id: HIERARCHICAL_FOLDER_ID,
-    nodeType: 'folder', label: 'Hierarchy', depth: 0,
+    nodeType: 'folder', label: asRelationships ? 'Relationships' : 'Hierarchy', depth: 0,
     hasChildren: true, isExpanded: hierExpanded,
     count: filterText ? visibleRoots.length : hierarchicalRoots.length > 0 ? hierarchicalRoots.length : undefined,
     filtered: filterText ? true : undefined,
     parentIndex: -1,
   })
   if (hierExpanded) {
+    const walkRoot = asRelationships
+      ? (obj: ObjectInstance) =>
+          walkRel(obj, 1, 0, new Set([obj.elementId]), obj.elementId, hierIndex)
+      : (obj: ObjectInstance) => walkHier(obj, 1, new Set<string>(), 'hier', hierIndex)
+    const rootId = asRelationships
+      ? (obj: ObjectInstance) => relRowId(obj.elementId)
+      : (obj: ObjectInstance) => `hier:${obj.elementId}`
+
     const rootLimit = pageLimit(HIERARCHICAL_FOLDER_ID, visibleRoots.length)
-    for (let i = 0; i < rootLimit; i++) {
-      walkHier(visibleRoots[i], 1, new Set<string>(), 'hier', hierIndex)
-    }
+    for (let i = 0; i < rootLimit; i++) walkRoot(visibleRoots[i])
     if (rootLimit < visibleRoots.length) {
       pushMore(HIERARCHICAL_FOLDER_ID, 'hier', 1, rootLimit, visibleRoots.length, hierIndex)
     }
-    emitForced(visibleRoots, rootLimit, o => `hier:${o.elementId}`,
-      o => walkHier(o, 1, new Set<string>(), 'hier', hierIndex))
+    emitForced(visibleRoots, rootLimit, rootId, walkRoot)
     if (allObjects.length > 0 && visibleRoots.length === 0) {
       pushMarker('hier#empty', 1, filterText ? 'No matching objects' : 'No root objects found', hierIndex)
     }
@@ -513,6 +704,39 @@ export async function loadChildrenFor(row: NodeRow): Promise<void> {
   if (!client) return
   const { setObjects, setHierarchicalRoots, setChildObjects, mergeCompositionFlags } = useExplorerStore.getState()
   const { id, nodeType, data } = row
+
+  // Relationship node: fetch every relationship kind (no type filter), then
+  // decide which of the resulting groups to open. Checked before the
+  // composition branch below, because a 'rel:' row is also nodeType 'object'.
+  if (id.startsWith(REL_PREFIX)) {
+    const obj = data as ObjectInstance
+    try {
+      const related = await client.getRelatedObjects(obj.elementId)
+      const { setRelatedObjects, mergeRelatedNeighborIds, expandNodes, objectIndex, childrenByParent, relationshipTypeIndex } =
+        useExplorerStore.getState()
+      setRelatedObjects(obj.elementId, related)
+
+      const neighbors = directNeighbors(obj, related, { objectIndex, childrenByParent })
+      // Cache the ids so this row's chevron (and every other occurrence of the
+      // same object elsewhere in the walk) is exact from here on.
+      mergeRelatedNeighborIds([[obj.elementId, neighbors.map(n => n.object.elementId)]])
+
+      const path = id.slice(REL_PREFIX.length)
+      const branch = relPathIds(path)
+      const groups = groupNeighbors(
+        neighbors.filter(n => !branch.has(n.object.elementId)),
+        relationshipTypeIndex
+      )
+      const toOpen = planGroupExpansion(path, groups)
+      if (toOpen.length > 0) expandNodes(toOpen)
+    } catch (err) {
+      console.error('Failed to load relationships:', err)
+    }
+    return
+  }
+  // Group rows hold no data of their own; their members are already in the
+  // parent's fetched payload.
+  if (nodeType === 'relGroup') return
 
   // Re-fetch objects for this type whenever expanding (always fresh)
   if (nodeType === 'objectType') {

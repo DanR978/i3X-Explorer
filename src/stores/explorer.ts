@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Namespace, ObjectType, ObjectInstance } from '../api/types'
+import type { Namespace, ObjectType, ObjectInstance, RelationshipType } from '../api/types'
 
 export type TreeNodeType = 'namespace' | 'objectType' | 'object' | 'folder'
 
@@ -85,6 +85,34 @@ export const INITIAL_RELATIONSHIP_DEPTH_PILLS = 2
 // across element selections for the session.
 export type RelationshipView = 'tree' | 'radial'
 
+// How the sidebar's third folder nests the same set of root objects:
+//   'hierarchy'     parentId only, one parent per node, derived from the store
+//   'relationships' every edge the server reports, grouped by relationship type
+// The roots are identical either way, so toggling never loses your place at the
+// top level; only what hangs under a node changes.
+export type TreeStructure = 'hierarchy' | 'relationships'
+
+// Row ids in the relationship walk. Unlike the hierarchy, where every object
+// appears exactly once, the same object legitimately hangs off many places in a
+// relationship graph, so its id has to be the PATH that reached it, not the
+// element. Keying expansion on the element instead would open every occurrence
+// of a hub at once, which on a densely linked model is an explosion.
+//
+// The path is the chain of elementIds joined by NUL, which cannot occur inside
+// an elementId, so a path is never ambiguous and an ancestor is exactly a
+// prefix. Lives here rather than in relationshipTree.ts because this store
+// needs it too (expandedPathTo) and modules under components/ import the store,
+// never the reverse.
+export const REL_SEP = '\u0000'
+export const REL_PREFIX = 'rel:'
+export const REL_GROUP_PREFIX = 'relgrp:'
+
+// Expanding a relationship node whose neighbours all fit inside this budget
+// opens its relationship groups immediately. Past it, the groups stay closed and
+// the node reads as a table of contents ("Parent 1 · Children 640 · Feeds 2"),
+// which is the more useful answer at that size.
+export const REL_AUTO_EXPAND_NEIGHBORS = 12
+
 // A node is only visible once every folder/ancestor above it is expanded, so
 // restoring a selection means restoring that path too. Mirrors the expansion
 // SearchModal and the main panel perform before they call selectItem.
@@ -95,7 +123,17 @@ function expandedPathTo(
 ): Set<string> {
   const expanded = new Set(expandedNodes)
 
-  if (item.id.startsWith('hier:')) {
+  // A relationship row's id is the chain of elementIds that reached it, so its
+  // ancestors are literally its prefixes. The relationship-type group rows in
+  // between are not derivable here, and don't need to be: buildTreeRows
+  // force-opens any group that holds the selection.
+  if (item.id.startsWith(REL_PREFIX)) {
+    expanded.add('folder:hierarchical')
+    const segments = item.id.slice(REL_PREFIX.length).split(REL_SEP)
+    for (let i = 1; i < segments.length; i++) {
+      expanded.add(REL_PREFIX + segments.slice(0, i).join(REL_SEP))
+    }
+  } else if (item.id.startsWith('hier:')) {
     expanded.add('folder:hierarchical')
     const visited = new Set<string>()
     let current = item.data as ObjectInstance
@@ -124,10 +162,34 @@ function expandedPathTo(
 interface ExplorerState {
   namespaces: Namespace[]
   objectTypes: ObjectType[]
+  // Declared relationship types, fetched once on connect. The walk needs them
+  // only to LABEL its groups: a group header should read "Feeds to" / "Fed by"
+  // in the server's own vocabulary rather than echoing a raw elementId.
+  relationshipTypes: RelationshipType[]
+  // elementId (and relationshipId, when the server sends one) → its declared
+  // type, so a group header resolves its label with one lookup.
+  relationshipTypeIndex: Map<string, RelationshipType>
   objects: Map<string, ObjectInstance[]> // keyed by typeId
   allObjects: ObjectInstance[] // flat list of all objects
   hierarchicalRoots: ObjectInstance[] // root objects for the Hierarchy folder (from root=true query)
   childObjects: Map<string, ObjectInstance[]> // keyed by parent elementId
+  // elementId → everything POST /objects/related returned for it, unfiltered,
+  // fetched when a relationship row is expanded. Kept raw (not pre-grouped) so
+  // the walk can union it with the store's own parent/child knowledge through
+  // the same directNeighbors() the Relationships tab uses, and so the two
+  // surfaces can never disagree about what an object is connected to.
+  relatedObjects: Map<string, ObjectInstance[]>
+  // elementId → the elementIds of its direct neighbours, resolved in batches for
+  // the rows currently on screen. The relationship chevron is optimistic until
+  // this lands (any object might be connected to something) and then
+  // self-corrects, exactly as compositionCache does for the hierarchy.
+  //
+  // Ids rather than a bare count, because the count a row actually shows depends
+  // on where it hangs: the edge it was reached through is dropped, and a leaf
+  // whose only neighbour is the parent above it must lose its chevron. A count
+  // cannot answer that; a cheap id list can, without holding a second copy of
+  // every neighbouring object.
+  relatedNeighborIds: Map<string, string[]>
   // elementId → count of qualifying compositional children (children where
   // isComposition && parentId === this elementId). Resolved authoritatively
   // via batched POST /objects/related so it never disagrees with the render
@@ -184,16 +246,24 @@ interface ExplorerState {
   // How many hops the Subtree tab walks down from the selected element. Same
   // reason as relationshipDepth for living here rather than in the tab.
   subtreeDepth: number
+  // How the sidebar's third folder nests its objects: by parentId, or by every
+  // relationship the server reports.
+  treeStructure: TreeStructure
 
   setNamespaces: (namespaces: Namespace[]) => void
   setObjectTypes: (types: ObjectType[]) => void
+  setRelationshipTypes: (types: RelationshipType[]) => void
   setObjects: (typeId: string, objects: ObjectInstance[]) => void
   setAllObjects: (objects: ObjectInstance[]) => void
   setHierarchicalRoots: (roots: ObjectInstance[]) => void
   setChildObjects: (parentId: string, children: ObjectInstance[]) => void
+  setRelatedObjects: (elementId: string, related: ObjectInstance[]) => void
   mergeCompositionFlags: (entries: Iterable<[string, number]>) => void
+  mergeRelatedNeighborIds: (entries: Iterable<[string, string[]]>) => void
   toggleNode: (nodeId: string) => void
   expandNode: (nodeId: string) => void
+  /** Expand several nodes in one write (relationship groups on expand). */
+  expandNodes: (nodeIds: Iterable<string>) => void
   collapseNode: (nodeId: string) => void
   raiseChildLimit: (nodeId: string, by: number) => void
   showAllChildren: (nodeId: string) => void
@@ -220,6 +290,7 @@ interface ExplorerState {
   revealRelationshipDepth: () => void
   setRelationshipView: (view: RelationshipView) => void
   setSubtreeDepth: (depth: number) => void
+  setTreeStructure: (structure: TreeStructure) => void
   reset: () => void
 }
 
@@ -263,10 +334,14 @@ function gotoIndex(index: number) {
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
   namespaces: [],
   objectTypes: [],
+  relationshipTypes: [],
+  relationshipTypeIndex: new Map(),
   objects: new Map(),
   allObjects: [],
   hierarchicalRoots: [],
   childObjects: new Map(),
+  relatedObjects: new Map(),
+  relatedNeighborIds: new Map(),
   compositionCache: new Map(),
   typeIndex: new Map(),
   childrenByParent: new Map(),
@@ -288,6 +363,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   relationshipDepthShown: INITIAL_RELATIONSHIP_DEPTH_PILLS,
   relationshipView: 'tree',
   subtreeDepth: DEFAULT_SUBTREE_DEPTH,
+  treeStructure: 'hierarchy',
 
   // The 30s background poll re-fetches namespaces and types unconditionally
   // and would store a brand-new array every tick even when nothing changed.
@@ -312,6 +388,22 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       objectTypes: types,
       typeIndex: new Map(types.map(t => [t.elementId, t])),
     })
+  },
+
+  // Same content-identical guard as the two above: relationship types are
+  // re-fetched by the background poll and this index feeds the relationship
+  // walk's memo.
+  setRelationshipTypes: (types) => {
+    const current = get().relationshipTypes
+    if (current.length === types.length && JSON.stringify(current) === JSON.stringify(types)) return
+    const index = new Map<string, RelationshipType>()
+    for (const t of types) {
+      index.set(t.elementId, t)
+      // Servers report an object's sourceRelationship as either the type's
+      // elementId or its relationshipId; index both so the lookup can't miss.
+      if (t.relationshipId) index.set(t.relationshipId, t)
+    }
+    set({ relationshipTypes: types, relationshipTypeIndex: index })
   },
 
   setObjects: (typeId, objects) => {
@@ -350,11 +442,25 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set({ childObjects: updated })
   },
 
+  setRelatedObjects: (elementId, related) => {
+    const current = get().relatedObjects
+    const updated = new Map(current)
+    updated.set(elementId, related)
+    set({ relatedObjects: updated })
+  },
+
   mergeCompositionFlags: (entries) => {
     const current = get().compositionCache
     const updated = new Map(current)
     for (const [id, flag] of entries) updated.set(id, flag)
     set({ compositionCache: updated })
+  },
+
+  mergeRelatedNeighborIds: (entries) => {
+    const current = get().relatedNeighborIds
+    const updated = new Map(current)
+    for (const [id, neighborIds] of entries) updated.set(id, neighborIds)
+    set({ relatedNeighborIds: updated })
   },
 
   toggleNode: (nodeId) => {
@@ -380,6 +486,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const { expandedNodes } = get()
     const updated = new Set(expandedNodes)
     updated.add(nodeId)
+    set({ expandedNodes: updated })
+  },
+
+  expandNodes: (nodeIds) => {
+    const { expandedNodes } = get()
+    const updated = new Set(expandedNodes)
+    const before = updated.size
+    for (const id of nodeIds) updated.add(id)
+    if (updated.size === before) return
     set({ expandedNodes: updated })
   },
 
@@ -472,13 +587,24 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     subtreeDepth: Math.max(MIN_RELATIONSHIP_DEPTH, Math.min(MAX_RELATIONSHIP_DEPTH, depth)),
   }),
 
+  // Both walks start from the same hierarchicalRoots, so toggling never moves
+  // the top level. The two id namespaces ('hier:' and 'rel:') are disjoint and
+  // both are simply left in expandedNodes: each view keeps its own expansion,
+  // so switching over to check a relationship and switching back lands you
+  // exactly where you were rather than on a collapsed tree.
+  setTreeStructure: (structure) => set({ treeStructure: structure }),
+
   reset: () => set({
     namespaces: [],
     objectTypes: [],
+    relationshipTypes: [],
+    relationshipTypeIndex: new Map(),
     objects: new Map(),
     allObjects: [],
     hierarchicalRoots: [],
     childObjects: new Map(),
+    relatedObjects: new Map(),
+    relatedNeighborIds: new Map(),
     compositionCache: new Map(),
     typeIndex: new Map(),
     childrenByParent: new Map(),

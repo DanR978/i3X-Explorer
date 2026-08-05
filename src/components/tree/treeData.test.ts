@@ -3,10 +3,12 @@ import {
   buildTreeRows,
   HIERARCHICAL_FOLDER_ID,
   OBJECTS_FOLDER_ID,
+  type NodeRow,
   type TreeBuildInput,
   type TreeRow,
 } from './treeData'
-import { CHILD_PAGE_SIZE, CHILD_PAGE_SLACK } from '../../stores/explorer'
+import { relGroupRowId, relRowId } from './relationshipTree'
+import { CHILD_PAGE_SIZE, CHILD_PAGE_SLACK, REL_PREFIX, REL_SEP } from '../../stores/explorer'
 import type { ObjectInstance } from '../../api/types'
 
 function obj(elementId: string, over: Partial<ObjectInstance> = {}): ObjectInstance {
@@ -37,6 +39,10 @@ function input(over: Partial<TreeBuildInput> = {}): TreeBuildInput {
     selectedId: null,
     objectIndex: new Map(),
     searchIndex: new Map(),
+    treeStructure: 'hierarchy',
+    relatedObjects: new Map(),
+    relatedNeighborIds: new Map(),
+    relationshipTypeIndex: new Map(),
     ...over,
   }
 }
@@ -134,6 +140,176 @@ describe('buildTreeRows: paging', () => {
     expect(rows.filter(r => r.kind === 'node' && r.id.startsWith('hier:k'))).toHaveLength(
       CHILD_PAGE_SIZE + 1
     )
+  })
+})
+
+describe('buildTreeRows: relationship walk', () => {
+  const related = (elementId: string, relationshipType: string): ObjectInstance =>
+    obj(elementId, { sourceRelationship: relationshipType })
+
+  /** Relationship-mode input with the folder open and `expanded` rows expanded. */
+  const relInput = (
+    roots: ObjectInstance[],
+    relatedObjects: Map<string, ObjectInstance[]>,
+    expanded: string[] = []
+  ) =>
+    input({
+      treeStructure: 'relationships',
+      hierarchicalRoots: roots,
+      relatedObjects,
+      expandedNodes: new Set([HIERARCHICAL_FOLDER_ID, ...expanded]),
+    })
+
+  const path = (...ids: string[]) => ids.join(REL_SEP)
+
+  it('nests a single relationship kind directly, with no group header', () => {
+    const rows = buildTreeRows(
+      relInput(
+        [obj('A')],
+        new Map([['A', [related('B', 'HasComponent'), related('C', 'HasComponent')]]]),
+        [relRowId('A')]
+      )
+    )
+    expect(rows.some(r => r.kind === 'node' && r.nodeType === 'relGroup')).toBe(false)
+    const b = rows[nodeIndexOf(rows, relRowId(path('A', 'B')))]
+    expect(b).toMatchObject({ depth: 2, label: 'B' })
+    expect(rows[nodeIndexOf(rows, relRowId('A'))]).toMatchObject({ count: 2 })
+  })
+
+  it('draws a group row per relationship kind once there is more than one', () => {
+    const rows = buildTreeRows(
+      relInput(
+        [obj('A')],
+        new Map([['A', [related('P', 'HasParent'), related('B', 'HasComponent'), related('T', 'FeedsTo')]]]),
+        [relRowId('A')]
+      )
+    )
+    const groups = rows.filter(r => r.kind === 'node' && r.nodeType === 'relGroup')
+    expect(groups.map(g => (g as NodeRow).label)).toEqual(['Has parent', 'Has component', 'Feeds to'])
+    expect(groups.every(g => (g as NodeRow).depth === 2)).toBe(true)
+    // Collapsed by default: the headers are the answer at this point.
+    expect(nodeIndexOf(rows, relRowId(path('A', 'B')))).toBe(-1)
+  })
+
+  it('puts a group members at one more level, once the group is open', () => {
+    const groupId = relGroupRowId('A', 'FeedsTo')
+    const rows = buildTreeRows(
+      relInput(
+        [obj('A')],
+        new Map([['A', [related('P', 'HasParent'), related('T', 'FeedsTo')]]]),
+        [relRowId('A'), groupId]
+      )
+    )
+    expect(rows[nodeIndexOf(rows, relRowId(path('A', 'T')))]).toMatchObject({ depth: 3 })
+    // The other group stayed shut.
+    expect(nodeIndexOf(rows, relRowId(path('A', 'P')))).toBe(-1)
+  })
+
+  it('drops the edge it arrived through, so a node never lists its own parent', () => {
+    const rows = buildTreeRows(
+      relInput(
+        [obj('A')],
+        new Map([
+          ['A', [related('B', 'HasComponent')]],
+          // B reports A back (the same physical edge, seen from the far end).
+          ['B', [related('A', 'HasParent'), related('C', 'HasComponent')]],
+        ]),
+        [relRowId('A'), relRowId(path('A', 'B'))]
+      )
+    )
+    expect(nodeIndexOf(rows, relRowId(path('A', 'B', 'C')))).toBeGreaterThan(-1)
+    expect(nodeIndexOf(rows, relRowId(path('A', 'B', 'A')))).toBe(-1)
+    // One kind left after the drop, so still no group header.
+    expect(rows.some(r => r.kind === 'node' && r.nodeType === 'relGroup')).toBe(false)
+  })
+
+  it('drops every ancestor, not only the one it came from', () => {
+    // The failure this guards: a descendant three hops down still carries a
+    // HasParent up to the root, so the root came back as a dead leaf under every
+    // node beneath it. Dropping the immediate parent alone does not catch it.
+    const rows = buildTreeRows(
+      relInput(
+        [obj('root')],
+        new Map([
+          ['root', [related('mid', 'HasComponent')]],
+          ['mid', [related('leaf', 'HasComponent')]],
+          ['leaf', [related('root', 'HasParent'), related('sink', 'FeedsTo')]],
+        ]),
+        [relRowId('root'), relRowId(path('root', 'mid')), relRowId(path('root', 'mid', 'leaf'))]
+      )
+    )
+    expect(nodeIndexOf(rows, relRowId(path('root', 'mid', 'leaf', 'root')))).toBe(-1)
+    // The genuinely new edge survives, and is the only kind left, so no header.
+    expect(nodeIndexOf(rows, relRowId(path('root', 'mid', 'leaf', 'sink')))).toBeGreaterThan(-1)
+    expect(rows.filter(r => r.kind === 'node' && r.nodeType === 'relGroup')).toHaveLength(0)
+    // The count on the leaf row reflects what is actually drawn under it.
+    expect(rows[nodeIndexOf(rows, relRowId(path('root', 'mid', 'leaf')))]).toMatchObject({ count: 1 })
+  })
+
+  it('closes a loop by not redrawing the branch, and stops walking it', () => {
+    const rows = buildTreeRows(
+      relInput(
+        [obj('A')],
+        new Map([
+          ['A', [related('B', 'HasComponent')]],
+          ['B', [related('C', 'HasComponent')]],
+          ['C', [related('A', 'HasComponent')]], // back to the top
+        ]),
+        [relRowId('A'), relRowId(path('A', 'B')), relRowId(path('A', 'B', 'C'))]
+      )
+    )
+    expect(nodeIndexOf(rows, relRowId(path('A', 'B', 'C')))).toBeGreaterThan(-1)
+    // A is already the branch this row hangs from, so it is not drawn again and
+    // the walk terminates rather than spiralling.
+    expect(nodeIndexOf(rows, relRowId(path('A', 'B', 'C', 'A')))).toBe(-1)
+    expect(rows[nodeIndexOf(rows, relRowId(path('A', 'B', 'C')))]).toMatchObject({
+      hasChildren: false,
+      count: undefined,
+    })
+  })
+
+  it('pages a large group and force-emits the selection inside it', () => {
+    // Neighbours are ordered alphabetically by name, so pad the numbers: with
+    // bare k0…k69 the "past the page" row lands inside it lexicographically.
+    const kids = Array.from({ length: CHILD_PAGE_SIZE + CHILD_PAGE_SLACK + 10 }, (_, i) =>
+      related(`k${String(i).padStart(3, '0')}`, 'HasComponent')
+    )
+    const selected = relRowId(path('A', `k${String(CHILD_PAGE_SIZE + 1).padStart(3, '0')}`))
+    const rows = buildTreeRows({
+      ...relInput([obj('A')], new Map([['A', kids]]), [relRowId('A')]),
+      selectedId: selected,
+    })
+    const shown = rows.filter(r => r.kind === 'node' && r.id.startsWith(relRowId(path('A', 'k'))))
+    expect(shown).toHaveLength(CHILD_PAGE_SIZE + 1) // one page plus the forced row
+    expect(nodeIndexOf(rows, selected)).toBeGreaterThan(rows.findIndex(r => r.kind === 'more'))
+  })
+
+  it('opens a collapsed group that holds the current selection', () => {
+    const selected = relRowId(path('A', 'T'))
+    const rows = buildTreeRows({
+      ...relInput(
+        [obj('A')],
+        new Map([['A', [related('P', 'HasParent'), related('T', 'FeedsTo')]]]),
+        [relRowId('A')] // neither group expanded
+      ),
+      selectedId: selected,
+    })
+    expect(nodeIndexOf(rows, selected)).toBeGreaterThan(-1)
+    // Only the group on the path opened; the other stayed shut.
+    expect(nodeIndexOf(rows, relRowId(path('A', 'P')))).toBe(-1)
+  })
+
+  it('leaves the hierarchy walk alone when the structure is hierarchy', () => {
+    const rows = buildTreeRows(
+      input({
+        hierarchicalRoots: [obj('A')],
+        childrenByParent: new Map([['A', [obj('B', { parentId: 'A' })]]]),
+        relatedObjects: new Map([['A', [related('Z', 'FeedsTo')]]]),
+        expandedNodes: new Set([HIERARCHICAL_FOLDER_ID, 'hier:A']),
+      })
+    )
+    expect(nodeIndexOf(rows, 'hier:B')).toBeGreaterThan(-1)
+    expect(rows.some(r => r.kind === 'node' && r.id.startsWith(REL_PREFIX))).toBe(false)
   })
 })
 

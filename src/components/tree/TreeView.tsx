@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useExplorerStore, CHILD_PAGE_SIZE } from '../../stores/explorer'
+import { useExplorerStore, CHILD_PAGE_SIZE, REL_PREFIX, type TreeStructure } from '../../stores/explorer'
 import { useConnectionStore } from '../../stores/connection'
 import { getClient } from '../../api/client'
 import type { ObjectInstance } from '../../api/types'
@@ -10,11 +10,14 @@ import { Chevron } from '../common/Chevron'
 import { ContextMenu, type MenuEntry } from '../common/ContextMenu'
 import { NumberPromptDialog } from '../common/NumberPromptDialog'
 import { useElementNavigation } from '../main/navigation'
+import { SegmentedControl } from '../main/primitives'
+import { relElementId } from './relationshipTree'
 import {
   buildTreeRows,
   activateRow,
   expandRow,
   resolveCompositionFlags,
+  resolveRelationshipFlags,
   refreshAllObjects,
   ESTIMATED_ROW_HEIGHT,
   NAMESPACES_FOLDER_ID,
@@ -23,6 +26,11 @@ import {
   type TreeRow,
   type NodeRow,
 } from './treeData'
+
+const STRUCTURE_OPTIONS: { value: TreeStructure; label: string }[] = [
+  { value: 'hierarchy', label: 'Hierarchy' },
+  { value: 'relationships', label: 'Relations' },
+]
 
 const BACKGROUND_POLL_ENABLED = true
 
@@ -74,6 +82,11 @@ export function TreeView() {
   const childPageLimits = useExplorerStore(s => s.childPageLimits)
   const objectIndex = useExplorerStore(s => s.objectIndex)
   const searchIndex = useExplorerStore(s => s.searchIndex)
+  const treeStructure = useExplorerStore(s => s.treeStructure)
+  const setTreeStructure = useExplorerStore(s => s.setTreeStructure)
+  const relatedObjects = useExplorerStore(s => s.relatedObjects)
+  const relatedNeighborIds = useExplorerStore(s => s.relatedNeighborIds)
+  const relationshipTypeIndex = useExplorerStore(s => s.relationshipTypeIndex)
   const searchQuery = useExplorerStore(s => s.searchQuery)
   const setSearchQuery = useExplorerStore(s => s.setSearchQuery)
   const pollIntervalMs = useExplorerStore(s => s.pollIntervalMs)
@@ -105,10 +118,15 @@ export function TreeView() {
         selectedId,
         objectIndex,
         searchIndex,
+        treeStructure,
+        relatedObjects,
+        relatedNeighborIds,
+        relationshipTypeIndex,
       }),
     [namespaces, objectTypes, objects, allObjects, hierarchicalRoots,
      childObjects, childrenByParent, compositionCache, expandedNodes,
-     childPageLimits, filterText, selectedId, objectIndex, searchIndex]
+     childPageLimits, filterText, selectedId, objectIndex, searchIndex,
+     treeStructure, relatedObjects, relatedNeighborIds, relationshipTypeIndex]
   )
 
   // ── Virtualization ────────────────────────────────────────────────────────
@@ -162,6 +180,26 @@ export function TreeView() {
     const handle = setTimeout(() => { void resolveCompositionFlags(client, targets) }, 150)
     return () => clearTimeout(handle)
   }, [virtualItems, rows, compositionCache])
+
+  // ── Lazy relationship chevrons ────────────────────────────────────────────
+  // Same contract, one walk over: a relationship row can't know whether it has
+  // neighbours without asking, so it shows a chevron optimistically and this
+  // corrects it for the rows on screen. Deduped per element, because the same
+  // object can occupy several rows of a relationship walk at once.
+  useEffect(() => {
+    const client = getClient()
+    if (!client) return
+    const targets = new Map<string, ObjectInstance>()
+    for (const vi of virtualItems) {
+      const row = rows[vi.index]
+      if (row.kind !== 'node' || !row.id.startsWith(REL_PREFIX)) continue
+      const obj = row.data as ObjectInstance
+      if (!relatedNeighborIds.has(obj.elementId)) targets.set(obj.elementId, obj)
+    }
+    if (targets.size === 0) return
+    const handle = setTimeout(() => { void resolveRelationshipFlags(client, [...targets.values()]) }, 150)
+    return () => clearTimeout(handle)
+  }, [virtualItems, rows, relatedNeighborIds])
 
   // ── Sticky ancestor header ────────────────────────────────────────────────
   // While scrolled deep inside one parent's (possibly enormous) child list, its
@@ -421,7 +459,7 @@ export function TreeView() {
     const client = getClient()
     if (!client) return
 
-    const { expandedNodes, setNamespaces, setObjectTypes, setObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore.getState()
+    const { expandedNodes, setNamespaces, setObjectTypes, setRelationshipTypes, setObjects, setHierarchicalRoots, setChildObjects } = useExplorerStore.getState()
 
     try {
       const [namespaces, objectTypes] = await Promise.all([
@@ -434,8 +472,17 @@ export function TreeView() {
       console.error('Background refresh: namespaces/types failed', err)
     }
 
+    // Relationship types only matter for the relationship walk's group labels,
+    // so this is best-effort and never blocks the rest of the refresh.
+    try {
+      setRelationshipTypes(await client.getRelationshipTypes())
+    } catch (err) {
+      console.warn('Background refresh: relationship types failed', err)
+    }
+
     let allObjectsRefreshed = false
     const refreshedChildIds = new Set<string>()
+    const refreshedRelatedIds = new Set<string>()
 
     for (const nodeId of expandedNodes) {
       if (nodeId.startsWith('type:')) {
@@ -465,6 +512,21 @@ export function TreeView() {
           setHierarchicalRoots(roots)
         } catch (err) {
           console.error('Background refresh: root objects failed', err)
+        }
+      }
+
+      // Relationship nodes: re-ask who this object is connected to. Deduped by
+      // element, since one object can be expanded at several places in the walk.
+      if (nodeId.startsWith(REL_PREFIX)) {
+        const elementId = relElementId(nodeId.slice(REL_PREFIX.length))
+        if (!refreshedRelatedIds.has(elementId)) {
+          refreshedRelatedIds.add(elementId)
+          try {
+            const related = await client.getRelatedObjects(elementId)
+            useExplorerStore.getState().setRelatedObjects(elementId, related)
+          } catch (err) {
+            console.error('Background refresh: relationships failed', elementId, err)
+          }
         }
       }
 
@@ -517,10 +579,18 @@ export function TreeView() {
 
   return (
     <div className="flex flex-col h-full min-h-0 text-i3x-text">
-      {/* Filter input, fixed header above the scrolling tree body. The sidebar
-          gives the tree its full width edge-to-edge; the input carries its own
-          side padding while rows bleed to the panel edges. */}
-      <div className="shrink-0 bg-i3x-surface px-2 pb-2 mb-1">
+      {/* Fixed header above the scrolling tree body: how the third folder
+          nests, then the filter. The sidebar gives the tree its full width
+          edge-to-edge; the header carries its own side padding while rows bleed
+          to the panel edges. */}
+      <div className="shrink-0 bg-i3x-surface px-2 pb-2 mb-1 space-y-2">
+        <SegmentedControl
+          label="Tree structure"
+          value={treeStructure}
+          options={STRUCTURE_OPTIONS}
+          onChange={setTreeStructure}
+          fill
+        />
         <input
           type="text"
           value={searchQuery}

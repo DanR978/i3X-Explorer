@@ -6,6 +6,7 @@ import {
   LayersIcon,
   GridIcon,
   HierarchyIcon,
+  RelationsIcon,
   GlobeIcon,
   FileTextIcon,
   FolderIcon,
@@ -15,6 +16,7 @@ import {
   CopyIcon,
   CheckIcon,
 } from '../common/icons'
+import { BUCKET_COLOR } from '../graph/relationshipColors'
 import {
   activateRow,
   isScalarSchemaType,
@@ -34,11 +36,29 @@ const ICON_SIZE = 15
  */
 export function TreeRowIcon({ row }: { row: NodeRow }) {
   const typeIndex = useExplorerStore(s => s.typeIndex)
+  const treeStructure = useExplorerStore(s => s.treeStructure)
   switch (row.nodeType) {
     case 'folder':
       if (row.id === OBJECTS_FOLDER_ID) return <GridIcon size={ICON_SIZE} className="text-i3x-text-muted" />
-      if (row.id === HIERARCHICAL_FOLDER_ID) return <HierarchyIcon size={ICON_SIZE} className="text-i3x-text-muted" />
+      if (row.id === HIERARCHICAL_FOLDER_ID) {
+        return treeStructure === 'relationships'
+          ? <RelationsIcon size={ICON_SIZE} className="text-i3x-text-muted" />
+          : <HierarchyIcon size={ICON_SIZE} className="text-i3x-text-muted" />
+      }
       return <LayersIcon size={ICON_SIZE} className="text-i3x-text-muted" />
+    // The group's colour is the relationship language shared with the map and
+    // the legend (amber up to a parent, green down to children, and so on), so
+    // a "feeds" group reads the same here as it does on the graph.
+    case 'relGroup':
+      return (
+        <span
+          aria-hidden="true"
+          className="grid w-[15px] place-items-center"
+          style={{ color: BUCKET_COLOR[row.bucket ?? 'other'] }}
+        >
+          <span className="block h-[7px] w-[7px] rounded-full bg-current" />
+        </span>
+      )
     case 'namespace':
       return <GlobeIcon size={ICON_SIZE} className="text-i3x-primary" />
     case 'objectType': {
@@ -113,6 +133,10 @@ export function TreeNode({
   // Narrow selector: a row re-renders for its own selection change only.
   const isSelected = useExplorerStore(s => s.selectedItem?.id === row.id)
   const [copied, setCopied] = useState(false)
+  // A relationship group is a divider, not a thing: it names the edge its rows
+  // hang off. Quieter than the object names around it, so the objects stay the
+  // figure and the grouping stays the ground.
+  const isGroup = nodeType === 'relGroup'
 
   // What the hover action copies: element ID everywhere, URI for namespaces.
   const copyValue =
@@ -154,7 +178,14 @@ export function TreeNode({
       {/* Truncate, never scroll: the count pill stays pinned at the panel edge
           at any panel width; the tooltip carries the full name and widening
           the sidebar reveals more of it. */}
-      <span className="tree-label flex-1 min-w-0 truncate text-sm" title={label}>
+      <span
+        className={`tree-label flex-1 min-w-0 truncate ${
+          // No uppercasing: the label is deliberately sentence case ("Supplied
+          // by"), and text-transform would throw that away for a shout.
+          isGroup ? 'text-xs font-medium text-i3x-text-muted' : 'text-sm'
+        }`}
+        title={label}
+      >
         {label}
       </span>
 

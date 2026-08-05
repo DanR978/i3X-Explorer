@@ -91,6 +91,13 @@ export async function performConnect(): Promise<void> {
         // Redundant with expansion-time refetch, so a log is enough.
         console.warn('Hierarchy roots prefetch failed:', err)
       })
+      // The declared relationship vocabulary, used to label the groups in the
+      // sidebar's relationship walk ("Feeds to" rather than a raw elementId).
+      // Purely cosmetic, so a server that doesn't serve it degrades to derived
+      // labels instead of failing the connect.
+      client.getRelationshipTypes().then(explorer.setRelationshipTypes).catch(err => {
+        console.warn('Relationship types prefetch failed:', err)
+      })
     } else {
       connection.setError('Failed to connect to server')
       destroyClient()

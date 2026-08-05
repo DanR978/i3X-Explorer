@@ -1,6 +1,7 @@
 import {
   useExplorerStore,
   CHILD_PAGE_SIZE,
+  REL_PREFIX,
   type DetailTab,
   type SelectedItem,
 } from '../../stores/explorer'
@@ -165,12 +166,17 @@ function objectEntries(row: NodeRow, revealInHierarchy: (elementId: string) => v
     }
   }
   // Cross-view reveal: the same object exists in both trees; jump between them.
+  // From a relationship row this also has to flip the folder back to the
+  // hierarchy walk, or the row it reveals would not be on screen to reveal.
   if (!isHier && objectIndex.has(obj.elementId)) {
     entries.push({
       kind: 'action',
       label: 'Reveal in Hierarchy',
       icon: <HierarchyIcon size={ICON} />,
-      onSelect: () => revealInHierarchy(obj.elementId),
+      onSelect: () => {
+        if (row.id.startsWith(REL_PREFIX)) useExplorerStore.getState().setTreeStructure('hierarchy')
+        revealInHierarchy(obj.elementId)
+      },
     })
   }
   if (isHier) {
@@ -204,6 +210,33 @@ function objectEntries(row: NodeRow, revealInHierarchy: (elementId: string) => v
         const { childrenByParent } = useExplorerStore.getState()
         copyJson(subtreeJson(obj, childrenByParent, new Set()))
       },
+    })
+  }
+  return entries
+}
+
+/**
+ * A relationship group header names an edge kind, not an object, so its menu is
+ * only about the block underneath it: open it, close it, or stop paging it.
+ * There is nothing to copy, the members are the parent's neighbours and the
+ * parent row's own menu already offers them.
+ */
+function relGroupEntries(row: NodeRow): MenuEntry[] {
+  const { childPageLimits } = useExplorerStore.getState()
+  const paged = row.count !== undefined && (childPageLimits.get(row.id) ?? CHILD_PAGE_SIZE) < row.count
+  const entries: MenuEntry[] = [
+    { kind: 'header', label: `${row.label} · ${(row.count ?? 0).toLocaleString()}` },
+    row.isExpanded
+      ? { kind: 'action', label: 'Collapse', icon: <CollapseAllIcon size={ICON} />, onSelect: () => useExplorerStore.getState().collapseNode(row.id) }
+      : { kind: 'action', label: 'Expand', icon: <ExpandAllIcon size={ICON} />, onSelect: () => expandRow(row) },
+  ]
+  if (row.isExpanded && paged) {
+    entries.push({
+      kind: 'action',
+      label: 'Show all',
+      detail: (row.count ?? 0).toLocaleString(),
+      icon: <ExpandAllIcon size={ICON} />,
+      onSelect: () => useExplorerStore.getState().showAllChildren(row.id),
     })
   }
   return entries
@@ -353,6 +386,7 @@ export function buildTreeMenu(
     case 'object': return objectEntries(row, revealInHierarchy)
     case 'objectType': return typeEntries(row)
     case 'namespace': return namespaceEntries(row)
+    case 'relGroup': return relGroupEntries(row)
     case 'folder': return folderEntries(row)
   }
 }

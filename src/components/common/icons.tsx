@@ -73,6 +73,21 @@ export const HierarchyIcon = (p: IconProps) => (
   </Icon>
 )
 
+/**
+ * Relationships root folder: one node linked out in several directions. The
+ * counterpart to HierarchyIcon, which fans strictly downward, this one radiates,
+ * because a relationship walk goes up, down and sideways from wherever it stands.
+ */
+export const RelationsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="2.6" />
+    <circle cx="4.8" cy="5.6" r="1.9" />
+    <circle cx="19.4" cy="7.2" r="1.9" />
+    <circle cx="16.6" cy="19.4" r="1.9" />
+    <path d="m6.2 7 3.9 3.2M17.7 8.5 14.1 10.7M15.6 17.6 13.1 14.3" />
+  </Icon>
+)
+
 /** Namespace: globe. */
 export const GlobeIcon = (p: IconProps) => (
   <Icon {...p}>
